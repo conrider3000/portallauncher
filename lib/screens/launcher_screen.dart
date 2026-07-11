@@ -764,6 +764,15 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                               AppsListView.searchQueryNotifier.value = text;
                             }
                           },
+                          onSubmitted: (query) {
+                            final trimmed = query.trim();
+                            if (_currentPageIndex == 0 && trimmed.isNotEmpty) {
+                              _searchFocusNode.unfocus();
+                              VirtualTopography.directSearchTrigger.value = trimmed;
+                            } else {
+                              _searchFocusNode.unfocus();
+                            }
+                          },
                           decoration: InputDecoration(
                             hintText: _currentPageIndex == 0
                                 ? 'Explorar...'
@@ -774,7 +783,15 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                               color: isDark ? const Color(0xFFECEFF1).withOpacity(0.4) : Colors.black.withOpacity(0.35),
                             ),
                             suffixIcon: GestureDetector(
-                              onTap: _openSearchOverlay,
+                              onTap: () {
+                                final query = _searchController.text.trim();
+                                if (_currentPageIndex == 0 && query.isNotEmpty) {
+                                  _searchFocusNode.unfocus();
+                                  VirtualTopography.directSearchTrigger.value = query;
+                                } else {
+                                  _openSearchOverlay();
+                                }
+                              },
                               child: Icon(
                                 Icons.search_rounded,
                                 color: theme.colorScheme.primary.withOpacity(0.7),

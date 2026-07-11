@@ -14,6 +14,7 @@ class VirtualTopography extends StatefulWidget {
   // Global map search query notifier to center the globe on matching locations
   static final ValueNotifier<String> mapSearchQueryNotifier = ValueNotifier('');
   static final ValueNotifier<String> earthFilterNotifier = ValueNotifier('Todos');
+  static final ValueNotifier<String?> directSearchTrigger = ValueNotifier<String?>(null);
 
   @override
   State<VirtualTopography> createState() => _VirtualTopographyState();
@@ -111,12 +112,14 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     _downloadEarthTexture();
     VirtualTopography.mapSearchQueryNotifier.addListener(_onMapSearchQueryChanged);
     VirtualTopography.earthFilterNotifier.addListener(_onFilterChanged);
+    VirtualTopography.directSearchTrigger.addListener(_onDirectSearchTriggered);
   }
 
   @override
   void dispose() {
     VirtualTopography.mapSearchQueryNotifier.removeListener(_onMapSearchQueryChanged);
     VirtualTopography.earthFilterNotifier.removeListener(_onFilterChanged);
+    VirtualTopography.directSearchTrigger.removeListener(_onDirectSearchTriggered);
     _animationController.dispose();
     _popupTimer?.cancel();
     super.dispose();
@@ -125,6 +128,43 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
   void _onFilterChanged() {
     if (mounted) {
       setState(() {});
+    }
+  }
+
+  void _onDirectSearchTriggered() {
+    final query = VirtualTopography.directSearchTrigger.value?.trim();
+    if (query == null || query.isEmpty) return;
+    _performDirectSearch(query);
+  }
+
+  Future<void> _performDirectSearch(String query) async {
+    setState(() {
+      _isSearchingWiki = true;
+      _wikiSearchResults = [];
+    });
+
+    final String searchUrl = 'https://pt.wikipedia.org/w/api.php?action=query&list=search&srsearch=$query&format=json&origin=*';
+    try {
+      final response = await http.get(Uri.parse(searchUrl)).timeout(const Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final searchList = data['query']?['search'] as List?;
+        if (searchList != null && searchList.isNotEmpty) {
+          final firstItem = searchList.first;
+          final String title = firstItem['title'];
+          await _fetchWikiPageDetails(title);
+        } else {
+          _showSnackBar('Nenhum local ou marco encontrado para "$query"');
+        }
+      }
+    } catch (e) {
+      debugPrint('Erro na busca direta no satélite: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSearchingWiki = false;
+        });
+      }
     }
   }
 
