@@ -384,12 +384,9 @@ class _ContextHeaderState extends State<ContextHeader> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final color = isDark ? Colors.white : Colors.black.withOpacity(0.8);
     
-    return Padding(
-      padding: const EdgeInsets.only(right: 8.0),
-      child: CustomPaint(
-        size: const Size(16, 16),
-        painter: _CalendarSymbolPainter(_calendarSystemIndex, color),
-      ),
+    return CustomPaint(
+      size: const Size(14, 14),
+      painter: _CalendarSymbolPainter(_calendarSystemIndex, color),
     );
   }
 
