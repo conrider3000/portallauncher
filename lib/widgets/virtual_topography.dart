@@ -483,9 +483,42 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     } catch (_) {}
   }
 
-  void _centerOnCoords(double lat, double lon) {
+  Future<void> _centerOnCoords(double lat, double lon) async {
+    String cityName = 'Curitiba, BR';
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getString('portal_city_name');
+      final cachedLat = prefs.getDouble('portal_last_lat');
+      final cachedLon = prefs.getDouble('portal_last_lon');
+      if (cached != null && cachedLat != null && cachedLon != null) {
+        final diffLat = (cachedLat - lat).abs();
+        final diffLon = (cachedLon - lon).abs();
+        if (diffLat < 0.05 && diffLon < 0.05) {
+          cityName = cached;
+        }
+      }
+    } catch (_) {}
+
+    if (cityName == 'Curitiba, BR') {
+      try {
+        final response = await http.get(Uri.parse(
+          'https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lon&format=json&zoom=10'
+        ), headers: {
+          'User-Agent': 'PortalLauncher/1.0 (android; contact@portallauncher.app)',
+          'Accept-Language': 'pt-BR',
+        }).timeout(const Duration(seconds: 4));
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body);
+          final address = data['address'] as Map<String, dynamic>?;
+          final city = address?['city'] ?? address?['town'] ?? address?['village'] ?? address?['municipality'] ?? 'Curitiba';
+          final country = address?['country_code']?.toString().toUpperCase() ?? 'BR';
+          cityName = '$city, $country';
+        }
+      } catch (_) {}
+    }
+
     final userPoint = {
-      'name': 'Minha Localização',
+      'name': cityName,
       'lat': lat,
       'lon': lon,
       'project': 'Receptor GPS Local',
@@ -495,7 +528,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
 
     if (mounted) {
       setState(() {
-        _geoPoints.removeWhere((gp) => gp['name'] == 'Minha Localização');
+        _geoPoints.removeWhere((gp) => gp['name'] == 'Minha Localização' || gp['project'] == 'Receptor GPS Local');
         _geoPoints.add(userPoint);
 
         final double latRad = lat * math.pi / 180.0;
@@ -504,7 +537,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
 
         _manualRotationY = -lonRad - math.pi - autoRotY;
         _manualRotationX = -latRad - 0.2;
-        _zoom = 1.1; // Reduced zoom from 1.35 to 1.1 to avoid overlapping the details card
+        _zoom = 1.1;
         _selectedGeoPoint = userPoint;
         _animationController.stop();
       });
@@ -720,8 +753,8 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
              if (_selectedGeoPoint != null)
                Positioned(
                  top: 8,
-                left: 16,
-                right: 16,
+                left: 0,
+                right: 0,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(24),
                   child: BackdropFilter(
@@ -792,14 +825,6 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
                                         ),
                                       ],
                                     ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      'Lat ${_selectedGeoPoint!['lat'].toStringAsFixed(4)} / Lon ${_selectedGeoPoint!['lon'].toStringAsFixed(4)}',
-                                      style: TextStyle(
-                                        fontSize: 10,
-                                        color: theme.colorScheme.onSurface.withOpacity(0.5),
-                                      ),
-                                    ),
                                     const SizedBox(height: 8),
                                     Text(
                                       _selectedGeoPoint!['project'],
@@ -836,46 +861,6 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
                                   ),
                               ],
                             ],
-                          ),
-                          const SizedBox(height: 12),
-                          Container(
-                            height: 60,
-                            width: double.infinity,
-                            decoration: BoxDecoration(
-                              color: (isDark ? Colors.white : Colors.black).withOpacity(0.05),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: (isDark ? Colors.white : Colors.black).withOpacity(0.06),
-                              ),
-                            ),
-                            alignment: Alignment.center,
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  _selectedGeoPoint!['status'] == 'LUGAR' || _selectedGeoPoint!['status'] == 'PAÍS'
-                                      ? Icons.menu_book_rounded
-                                      : Icons.satellite_alt_rounded,
-                                  color: theme.colorScheme.primary,
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 8),
-                                Flexible(
-                                  child: Text(
-                                    _selectedGeoPoint!['status'] == 'LUGAR' || _selectedGeoPoint!['status'] == 'PAÍS'
-                                        ? 'WIKIPÉDIA - CULTURA E LOCALIZAÇÃO'
-                                        : 'CONEXÃO DIRETA COM SENSOR ÓPTICO',
-                                    style: TextStyle(
-                                      fontSize: 9,
-                                      color: theme.colorScheme.onSurface.withOpacity(0.7),
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
                           ),
                         ],
                       ),

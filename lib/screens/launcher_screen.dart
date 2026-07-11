@@ -1207,6 +1207,8 @@ Widget _buildSidebarItem(
         );
       },
     );
+  }
+
   Widget _buildSectionTitle(String title, ThemeData theme) {
     return Padding(
       padding: const EdgeInsets.only(top: 8.0, bottom: 8.0, left: 4.0),
