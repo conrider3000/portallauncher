@@ -235,31 +235,21 @@ class _AppsListViewState extends State<AppsListView> {
 
   Widget _buildGlassmorphicItem(AppInfo app, bool isDark, ThemeData theme) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 8.0),
+      padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0),
       child: Container(
         height: 54.0,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isDark ? theme.colorScheme.primary.withOpacity(0.12) : theme.colorScheme.primary.withOpacity(0.08),
-            width: 1.0,
-          ),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: isDark
-                ? [theme.colorScheme.primary.withOpacity(0.06), theme.colorScheme.primary.withOpacity(0.01)]
-                : [theme.colorScheme.primary.withOpacity(0.03), theme.colorScheme.primary.withOpacity(0.005)],
-          ),
+        decoration: const BoxDecoration(
+          color: Colors.transparent,
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(19),
+          borderRadius: BorderRadius.circular(12),
           child: Material(
             color: Colors.transparent,
             child: InkWell(
               onTap: () => AppsService.launchApp(app.packageName, app.className),
-              splashColor: theme.colorScheme.primary.withOpacity(0.12),
-              highlightColor: theme.colorScheme.primary.withOpacity(0.06),
+              splashColor: theme.colorScheme.primary.withOpacity(0.08),
+              highlightColor: theme.colorScheme.primary.withOpacity(0.04),
+              borderRadius: BorderRadius.circular(12),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
                 child: Row(
@@ -284,8 +274,8 @@ class _AppsListViewState extends State<AppsListView> {
                     const SizedBox(width: 12),
                     // App Icon (on the far right, closest to the thumb)
                     SizedBox(
-                      width: 30,
-                      height: 30,
+                      width: 32,
+                      height: 32,
                       child: _loadedIcons[app.packageName] != null
                           ? Image.memory(
                               _loadedIcons[app.packageName]!,
@@ -293,7 +283,7 @@ class _AppsListViewState extends State<AppsListView> {
                             )
                           : Icon(
                               Icons.android_rounded,
-                              size: 18,
+                              size: 20,
                               color: theme.colorScheme.primary.withOpacity(0.3),
                             ),
                     ),

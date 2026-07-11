@@ -42,6 +42,18 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
     _checkDefaultStatus();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: [SystemUiOverlay.bottom]);
     _loadAppsForOverlay();
+
+    // Listen to Home button / swipe-up gesture from Android
+    const MethodChannel('com.portal/launcher_setup').setMethodCallHandler((call) async {
+      if (call.method == 'onHomePressed') {
+        if (_currentPageIndex != 0) {
+          _navigateToPage(0);
+        } else {
+          _closeSearchOverlay();
+        }
+      }
+      return null;
+    });
   }
 
   Future<void> _loadAppsForOverlay() async {

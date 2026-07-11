@@ -8,6 +8,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'dart:convert';
 import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class VirtualTopography extends StatefulWidget {
   const VirtualTopography({super.key});
@@ -240,9 +241,9 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
               'status': hasCoords ? 'LUGAR' : 'PAÍS'
             };
             
-            _manualRotationY = -lonRad - autoRotY;
+            _manualRotationY = -lonRad - math.pi - autoRotY;
             _manualRotationX = -latRad - 0.2;
-            _zoom = 1.35;
+            _zoom = 1.1; // Reduced from 1.35 to prevent details card overlap
           });
         }
       }
@@ -423,26 +424,57 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
       return;
     }
 
-    _showSnackBar('Buscando localização via satélite GPS...');
+    _showSnackBar('Centralizando na sua localização...');
 
+    double? lat;
+    double? lon;
+
+    // Try last known position first (instant)
+    try {
+      final lastPos = await Geolocator.getLastKnownPosition();
+      if (lastPos != null) {
+        lat = lastPos.latitude;
+        lon = lastPos.longitude;
+      }
+    } catch (_) {}
+
+    // Fallback to SharedPreferences cache
+    if (lat == null || lon == null) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        lat = prefs.getDouble('portal_last_lat');
+        lon = prefs.getDouble('portal_last_lon');
+      } catch (_) {}
+    }
+
+    // Default fallback (Curitiba)
+    lat ??= -25.4284;
+    lon ??= -49.2733;
+
+    // Center instantly on cache/last position
+    _centerOnCoords(lat, lon);
+
+    // Fetch fresh position in the background
     try {
       final Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 8),
+        timeLimit: const Duration(seconds: 5),
       );
+      _centerOnCoords(position.latitude, position.longitude);
+    } catch (_) {}
+  }
 
-      final double lat = position.latitude;
-      final double lon = position.longitude;
+  void _centerOnCoords(double lat, double lon) {
+    final userPoint = {
+      'name': 'Minha Localização',
+      'lat': lat,
+      'lon': lon,
+      'project': 'Receptor GPS Local',
+      'info': 'Latitude: ${lat.toStringAsFixed(4)} • Longitude: ${lon.toStringAsFixed(4)}',
+      'status': 'ONLINE'
+    };
 
-      final userPoint = {
-        'name': 'Minha Localização',
-        'lat': lat,
-        'lon': lon,
-        'project': 'Receptor GPS Local',
-        'info': 'Latitude: ${lat.toStringAsFixed(4)} • Longitude: ${lon.toStringAsFixed(4)}',
-        'status': 'ONLINE'
-      };
-
+    if (mounted) {
       setState(() {
         _geoPoints.removeWhere((gp) => gp['name'] == 'Minha Localização');
         _geoPoints.add(userPoint);
@@ -450,16 +482,13 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
         final double latRad = lat * math.pi / 180.0;
         final double lonRad = lon * math.pi / 180.0;
         final autoRotY = _animationController.value * 2 * math.pi;
-        _manualRotationY = -lonRad - autoRotY;
+
+        _manualRotationY = -lonRad - math.pi - autoRotY;
         _manualRotationX = -latRad - 0.2;
-        _zoom = 1.35;
+        _zoom = 1.1; // Reduced zoom from 1.35 to 1.1 to avoid overlapping the details card
         _selectedGeoPoint = userPoint;
         _animationController.stop();
       });
-
-      _showSnackBar('Sua localização foi fixada no globo!');
-    } catch (e) {
-      _showSnackBar('Erro ao obter localização: $e');
     }
   }
 
@@ -496,7 +525,8 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
 
   void _handleTapDown(TapDownDetails details, double width, double height) {
     if (_showFlatMap) return;
-    final center = Offset(width / 2, height / 2);
+    // Shift the tap detection center Y down matching the painter's shift to avoid details card overlapping
+    final center = Offset(width / 2, height / 2 + (_selectedGeoPoint != null ? 40.0 : 0.0));
     final radius = (math.min(width, height) * 0.35) * _zoom;
 
     final autoRotY = _animationController.value * 2 * math.pi;
@@ -540,9 +570,9 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
 
       setState(() {
         _selectedGeoPoint = closestPoint;
-        _manualRotationY = -lonRad - autoRotY;
+        _manualRotationY = -lonRad - math.pi - autoRotY;
         _manualRotationX = -latRad - 0.2;
-        _zoom = 1.35;
+        _zoom = 1.1; // Reduced zoom from 1.35 to 1.1 to avoid overlapping the details card
         _animationController.stop();
       });
       _popupTimer?.cancel();
@@ -624,6 +654,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
                           accentColor: theme.colorScheme.secondary,
                           zoom: _zoom,
                           filter: VirtualTopography.earthFilterNotifier.value,
+                          hasSelection: _selectedGeoPoint != null,
                         ),
                       );
                     },
@@ -950,6 +981,7 @@ class _TexturedGlobePainter extends CustomPainter {
   final Color accentColor;
   final double zoom;
   final String filter;
+  final bool hasSelection;
 
   _TexturedGlobePainter({
     required this.rotationProgress,
@@ -962,12 +994,14 @@ class _TexturedGlobePainter extends CustomPainter {
     required this.accentColor,
     required this.zoom,
     required this.filter,
+    required this.hasSelection,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
     final double cx = size.width / 2;
-    final double cy = size.height / 2;
+    // Shift globe center Y down by 40dp when selected to avoid overlapping the top details card
+    final double cy = size.height / 2 + (hasSelection ? 40.0 : 0.0);
     final double radius = (math.min(size.width, size.height) * 0.35) * zoom;
 
     final double autoRotY = rotationProgress * 2 * math.pi;

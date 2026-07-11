@@ -19,12 +19,21 @@ import java.io.ByteArrayOutputStream
 class MainActivity : FlutterActivity() {
     private val LAUNCHER_CHANNEL = "com.portal/launcher_setup"
     private val APPS_CHANNEL = "com.portal/apps"
+    private var launcherChannel: MethodChannel? = null
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        if (intent.hasCategory(Intent.CATEGORY_HOME) || intent.action == Intent.ACTION_MAIN) {
+            launcherChannel?.invokeMethod("onHomePressed", null)
+        }
+    }
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
         // Setup launcher control channel
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, LAUNCHER_CHANNEL).setMethodCallHandler { call, result ->
+        launcherChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, LAUNCHER_CHANNEL)
+        launcherChannel?.setMethodCallHandler { call, result ->
             when (call.method) {
                 "isDefaultHome" -> {
                     result.success(isDefaultHome())
