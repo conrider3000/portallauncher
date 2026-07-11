@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/theme_manager.dart';
 
 class MultiCalendarHelper {
@@ -194,8 +195,8 @@ class _ContextHeaderState extends State<ContextHeader> {
   late Timer _timer;
   String _weatherTemp = '--';
   String _weatherDesc = '--';
-  String _cityName = 'Localizando...';
-  double _userLat = -25.4284; // Curitiba default until GPS resolves
+  String _cityName = 'Curitiba, BR'; // Shown while GPS loads; replaced by cache or real location
+  double _userLat = -25.4284;
   double _userLon = -49.2733;
   bool _showPanel = false;
   int _calendarSystemIndex = 0; // 0: Gregorian, 1: Chinese, 2: Hebrew, 3: Hijri
@@ -226,6 +227,21 @@ class _ContextHeaderState extends State<ContextHeader> {
   }
 
   Future<void> _initLocation() async {
+    // 1. Load cached city name instantly (no delay)
+    final prefs = await SharedPreferences.getInstance();
+    final cached = prefs.getString('portal_city_name');
+    final cachedLat = prefs.getDouble('portal_last_lat');
+    final cachedLon = prefs.getDouble('portal_last_lon');
+    if (cached != null && mounted) {
+      setState(() => _cityName = cached);
+    }
+    if (cachedLat != null && cachedLon != null) {
+      _userLat = cachedLat;
+      _userLon = cachedLon;
+      // Fire weather immediately with cached coords while we fetch real GPS
+      _fetchWeather(cachedLat, cachedLon);
+    }
+
     try {
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
@@ -233,26 +249,32 @@ class _ContextHeaderState extends State<ContextHeader> {
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
-        // Fallback to Curitiba
-        await _fetchWeather(_userLat, _userLon);
-        await _fetchCityName(_userLat, _userLon);
+        if (cached == null) await _fetchCityName(_userLat, _userLon);
+        if (cachedLat == null) await _fetchWeather(_userLat, _userLon);
         return;
       }
+
+      // Try last known position first (instant, no GPS wait)
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null) {
+        if (mounted) setState(() { _userLat = last.latitude; _userLon = last.longitude; });
+        if (cached == null) await _fetchCityName(last.latitude, last.longitude);
+        _fetchWeather(last.latitude, last.longitude);
+      }
+
+      // Then get accurate position in background
       final pos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.low,
-        timeLimit: const Duration(seconds: 10),
+        timeLimit: const Duration(seconds: 15),
       );
-      if (mounted) {
-        setState(() {
-          _userLat = pos.latitude;
-          _userLon = pos.longitude;
-        });
-      }
+      if (mounted) setState(() { _userLat = pos.latitude; _userLon = pos.longitude; });
       await _fetchCityName(pos.latitude, pos.longitude);
       await _fetchWeather(pos.latitude, pos.longitude);
     } catch (_) {
+      if (mounted && _cityName == 'Curitiba, BR' && cached == null) {
+        await _fetchCityName(_userLat, _userLon);
+      }
       await _fetchWeather(_userLat, _userLon);
-      await _fetchCityName(_userLat, _userLon);
     }
   }
 
@@ -260,24 +282,32 @@ class _ContextHeaderState extends State<ContextHeader> {
     try {
       final uri = Uri.parse(
           'https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lon&format=json&zoom=10');
-      final response = await http.get(uri, headers: {'Accept-Language': 'pt-BR'});
+      final response = await http.get(uri, headers: {
+        'Accept-Language': 'pt-BR',
+        'User-Agent': 'PortalLauncher/1.0 (android; contact@portallauncher.app)',
+      }).timeout(const Duration(seconds: 8));
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final address = data['address'] as Map<String, dynamic>?;
         final city = address?['city'] ??
             address?['town'] ??
             address?['village'] ??
+            address?['municipality'] ??
             address?['county'] ??
-            'Desconhecido';
+            'GPS';
         final country = address?['country_code']?.toString().toUpperCase() ?? '';
+        final name = '$city, $country';
         if (mounted) {
-          setState(() {
-            _cityName = '$city, $country';
-          });
+          setState(() => _cityName = name);
         }
+        // Cache for next launch
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('portal_city_name', name);
+        await prefs.setDouble('portal_last_lat', lat);
+        await prefs.setDouble('portal_last_lon', lon);
       }
     } catch (_) {
-      if (mounted) setState(() => _cityName = 'Localização GPS');
+      // Keep whatever we already have (cache or default)
     }
   }
 

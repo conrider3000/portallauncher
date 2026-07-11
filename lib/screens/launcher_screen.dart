@@ -86,6 +86,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
     setState(() {
       _currentPageIndex = index;
       _searchOverlayOpen = false;
+      _overlayFilteredApps = [];
     });
     _searchController.clear();
     _overlaySearchController.clear();
@@ -104,9 +105,14 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
   }
 
   void _closeSearchOverlay() {
-    setState(() => _searchOverlayOpen = false);
+    setState(() {
+      _searchOverlayOpen = false;
+      _overlayFilteredApps = [];
+    });
     _overlaySearchController.clear();
+    _searchController.clear();
     _overlayFocusNode.unfocus();
+    _searchFocusNode.unfocus();
     VirtualTopography.mapSearchQueryNotifier.value = '';
     MemoryExplorerView.fileSearchQueryNotifier.value = '';
     AppsListView.searchQueryNotifier.value = '';
@@ -358,30 +364,19 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                     ],
                   ),
 
-                  // Filter bar OR search overlay (mutually exclusive)
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 220),
-                    transitionBuilder: (child, anim) => FadeTransition(
-                      opacity: anim,
-                      child: SizeTransition(sizeFactor: anim, child: child),
+                  // Filter bar (shown only on Home when panel closed)
+                  if (_currentPageIndex == 0)
+                    ValueListenableBuilder<bool>(
+                      valueListenable: ContextHeader.isPanelOpenNotifier,
+                      builder: (context, isPanelOpen, child) {
+                        return AnimatedSize(
+                          duration: const Duration(milliseconds: 200),
+                          child: isPanelOpen
+                              ? const SizedBox.shrink()
+                              : _buildEarthFilterBar(theme, isDark),
+                        );
+                      },
                     ),
-                    child: _searchOverlayOpen
-                        ? _buildSearchOverlay(theme, isDark)
-                        : (_currentPageIndex == 0
-                            ? ValueListenableBuilder<bool>(
-                                key: const ValueKey('filterbar'),
-                                valueListenable: ContextHeader.isPanelOpenNotifier,
-                                builder: (context, isPanelOpen, child) {
-                                  return AnimatedSize(
-                                    duration: const Duration(milliseconds: 200),
-                                    child: isPanelOpen
-                                        ? const SizedBox.shrink()
-                                        : _buildEarthFilterBar(theme, isDark),
-                                  );
-                                },
-                              )
-                            : const SizedBox.shrink(key: ValueKey('empty'))),
-                  ),
 
                   // Warning banner if Portal is not the default launcher
                   if (!_isDefault)
@@ -703,6 +698,120 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                 ),
               ),
             ),
+
+            // App search results panel — floats above bottom nav bar when explore bar has results
+            if (_overlayFilteredApps.isNotEmpty)
+              Positioned(
+                bottom: 148, // sits just above the nav bar height
+                left: 16,
+                right: 16,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20),
+                  child: BackdropFilter(
+                    filter: ui.ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: (isDark ? Colors.black : Colors.white).withOpacity(0.65),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                          color: theme.colorScheme.primary.withOpacity(0.2),
+                          width: 1,
+                        ),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+                            child: Row(
+                              children: [
+                                Icon(Icons.apps_rounded, size: 14, color: theme.colorScheme.primary),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Apps encontrados',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: theme.colorScheme.primary,
+                                    letterSpacing: 0.3,
+                                  ),
+                                ),
+                                const Spacer(),
+                                GestureDetector(
+                                  onTap: _closeSearchOverlay,
+                                  child: Icon(
+                                    Icons.close_rounded,
+                                    size: 16,
+                                    color: (isDark ? Colors.white : Colors.black).withOpacity(0.4),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          SizedBox(
+                            height: 80,
+                            child: ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
+                              itemCount: _overlayFilteredApps.length,
+                              itemBuilder: (context, index) {
+                                final app = _overlayFilteredApps[index];
+                                return GestureDetector(
+                                  onTap: () {
+                                    AppsService.launchApp(app.packageName, app.className);
+                                    _closeSearchOverlay();
+                                  },
+                                  child: Container(
+                                    width: 60,
+                                    margin: const EdgeInsets.only(right: 8),
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        FutureBuilder<Uint8List?>(
+                                          future: AppsService.getAppIcon(app.packageName),
+                                          builder: (context, snap) {
+                                            if (snap.hasData && snap.data != null) {
+                                              return ClipRRect(
+                                                borderRadius: BorderRadius.circular(12),
+                                                child: Image.memory(snap.data!, width: 40, height: 40, fit: BoxFit.cover),
+                                              );
+                                            }
+                                            return Container(
+                                              width: 40, height: 40,
+                                              decoration: BoxDecoration(
+                                                color: theme.colorScheme.primary.withOpacity(0.15),
+                                                borderRadius: BorderRadius.circular(12),
+                                              ),
+                                              alignment: Alignment.center,
+                                              child: Text(
+                                                app.label.isNotEmpty ? app.label[0].toUpperCase() : '?',
+                                                style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, fontSize: 16),
+                                              ),
+                                            );
+                                          },
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          app.label,
+                                          style: TextStyle(fontSize: 9, color: (isDark ? Colors.white : Colors.black).withOpacity(0.8)),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
