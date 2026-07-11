@@ -454,6 +454,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
         _manualRotationX = -latRad - 0.2;
         _zoom = 1.35;
         _selectedGeoPoint = userPoint;
+        _animationController.stop();
       });
 
       _showSnackBar('Sua localização foi fixada no globo!');
@@ -542,18 +543,21 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
         _manualRotationY = -lonRad - autoRotY;
         _manualRotationX = -latRad - 0.2;
         _zoom = 1.35;
+        _animationController.stop();
       });
       _popupTimer?.cancel();
       _popupTimer = Timer(const Duration(seconds: 15), () {
         if (mounted) {
           setState(() {
             _selectedGeoPoint = null;
+            _animationController.repeat();
           });
         }
       });
     } else {
       setState(() {
         _selectedGeoPoint = null;
+        _animationController.repeat();
       });
     }
   }
@@ -662,9 +666,9 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
                 ),
 
             // Interactive Geolocation Detail Popup Card (Apple Frosted Glass)
-            if (_selectedGeoPoint != null)
-              Positioned(
-                top: 80,
+             if (_selectedGeoPoint != null)
+               Positioned(
+                 top: 8,
                 left: 16,
                 right: 16,
                 child: ClipRRect(
@@ -728,11 +732,12 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
                                           icon: const Icon(Icons.close_rounded, size: 18),
                                           padding: EdgeInsets.zero,
                                           constraints: const BoxConstraints(),
-                                          onPressed: () {
-                                            setState(() {
-                                              _selectedGeoPoint = null;
-                                            });
-                                          },
+                                           onPressed: () {
+                                             setState(() {
+                                               _selectedGeoPoint = null;
+                                               _animationController.repeat();
+                                             });
+                                           },
                                         ),
                                       ],
                                     ),

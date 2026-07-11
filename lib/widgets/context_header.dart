@@ -195,6 +195,17 @@ class _ContextHeaderState extends State<ContextHeader> {
   bool _showPanel = false;
   int _calendarSystemIndex = 0; // 0: Gregorian, 1: Chinese, 2: Hebrew, 3: Hijri
 
+  String _getTimezoneLabel() {
+    final offset = _currentTime.timeZoneOffset;
+    final hours = offset.inHours;
+    final minutes = offset.inMinutes.abs() % 60;
+    final sign = hours >= 0 ? '+' : '-';
+    if (minutes == 0) {
+      return 'UTC$sign${hours.abs()}';
+    }
+    return 'UTC$sign${hours.abs()}:${minutes.toString().padLeft(2, '0')}';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -279,39 +290,14 @@ class _ContextHeaderState extends State<ContextHeader> {
   }
 
   Widget _getCalendarSymbolWidget(BuildContext context) {
-    final theme = Theme.of(context);
-    String symbol = '🌐';
-    Color color = theme.colorScheme.secondary;
-    
-    switch (_calendarSystemIndex) {
-      case 1:
-        symbol = '☯';
-        color = Colors.redAccent;
-        break;
-      case 2:
-        symbol = '✡';
-        color = Colors.blueAccent;
-        break;
-      case 3:
-        symbol = '☪';
-        color = Colors.green;
-        break;
-      case 0:
-      default:
-        symbol = '✝';
-        color = Colors.amber;
-        break;
-    }
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final color = isDark ? Colors.white : Colors.black.withOpacity(0.8);
     
     return Padding(
-      padding: const EdgeInsets.only(right: 2.0),
-      child: Text(
-        symbol,
-        style: TextStyle(
-          fontSize: 15,
-          color: color,
-          fontWeight: FontWeight.bold,
-        ),
+      padding: const EdgeInsets.only(right: 8.0),
+      child: CustomPaint(
+        size: const Size(16, 16),
+        painter: _CalendarSymbolPainter(_calendarSystemIndex, color),
       ),
     );
   }
@@ -414,7 +400,7 @@ class _ContextHeaderState extends State<ContextHeader> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            // Line 1: Real-time clock with seconds
+                             // Line 1: Real-time clock with seconds + timezone
                             Row(
                               children: [
                                 Icon(
@@ -428,6 +414,23 @@ class _ContextHeaderState extends State<ContextHeader> {
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     fontWeight: FontWeight.bold,
                                     letterSpacing: 0.5,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: theme.colorScheme.primary.withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Text(
+                                    _getTimezoneLabel(),
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: theme.colorScheme.primary,
+                                      letterSpacing: 0.3,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -492,4 +495,79 @@ class _ContextHeaderState extends State<ContextHeader> {
       ),
     );
   }
+}
+
+class _CalendarSymbolPainter extends CustomPainter {
+  final int index;
+  final Color color;
+
+  _CalendarSymbolPainter(this.index, this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 1.6
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..isAntiAlias = true;
+
+    final cx = size.width / 2;
+    final cy = size.height / 2;
+
+    if (index == 0) {
+      // Gregorian: Latin Cross
+      canvas.drawLine(Offset(cx, cy - 6), Offset(cx, cy + 6), paint);
+      canvas.drawLine(Offset(cx - 3.5, cy - 2), Offset(cx + 3.5, cy - 2), paint);
+    } else if (index == 1) {
+      // Chinese: Yin Yang
+      canvas.drawCircle(Offset(cx, cy), 6, paint);
+      final fillPaint = Paint()
+        ..color = color
+        ..style = PaintingStyle.fill;
+      canvas.drawArc(
+        Rect.fromCircle(center: Offset(cx, cy), radius: 6),
+        -math.pi / 2,
+        math.pi,
+        true,
+        fillPaint,
+      );
+      // Draw small inner opposite colored dots
+      canvas.drawCircle(Offset(cx, cy - 3), 1.2, Paint()..color = Colors.black..style = PaintingStyle.fill);
+      canvas.drawCircle(Offset(cx, cy + 3), 1.2, Paint()..color = color..style = PaintingStyle.fill);
+    } else if (index == 2) {
+      // Hebrew: Star of David
+      final path = Path();
+      // Triangle 1
+      path.moveTo(cx, cy - 6);
+      path.lineTo(cx + 5.2, cy + 3);
+      path.lineTo(cx - 5.2, cy + 3);
+      path.close();
+      // Triangle 2
+      path.moveTo(cx, cy + 6);
+      path.lineTo(cx + 5.2, cy - 3);
+      path.lineTo(cx - 5.2, cy - 3);
+      path.close();
+      canvas.drawPath(path, paint);
+    } else {
+      // Hijri: Crescent Moon
+      final moonPath = Path();
+      moonPath.addArc(Rect.fromCircle(center: Offset(cx - 1.5, cy), radius: 5.5), -1.2, 2.4);
+      moonPath.arcTo(Rect.fromCircle(center: Offset(cx + 1.0, cy), radius: 4.5), 1.6, -3.2, false);
+      moonPath.close();
+      canvas.drawPath(moonPath, paint..style = PaintingStyle.fill);
+
+      // Star
+      final starPaint = Paint()
+        ..color = color
+        ..strokeWidth = 1.0
+        ..style = PaintingStyle.stroke;
+      canvas.drawLine(Offset(cx + 3.5, cy - 2), Offset(cx + 3.5, cy + 1), starPaint);
+      canvas.drawLine(Offset(cx + 2.0, cy - 0.5), Offset(cx + 5.0, cy - 0.5), starPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CalendarSymbolPainter oldDelegate) =>
+      oldDelegate.index != index || oldDelegate.color != color;
 }
