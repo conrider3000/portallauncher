@@ -434,6 +434,70 @@ class _MemoryExplorerViewState extends State<MemoryExplorerView> {
                                 ),
                                 child: const Icon(Icons.delete_rounded, color: Colors.white, size: 18),
                               ),
+                              confirmDismiss: (direction) async {
+                                // 1ª confirmação
+                                final first = await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                    title: Row(
+                                      children: [
+                                        const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                                        const SizedBox(width: 10),
+                                        Expanded(child: Text('Excluir "$name"?', style: const TextStyle(fontSize: 16))),
+                                      ],
+                                    ),
+                                    content: Text(
+                                      isDir
+                                          ? 'A pasta e todo o seu conteúdo serão excluídos.'
+                                          : 'O arquivo será excluído do dispositivo.',
+                                      style: const TextStyle(fontSize: 13),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.of(ctx).pop(false),
+                                        child: const Text('Cancelar'),
+                                      ),
+                                      TextButton(
+                                        onPressed: () => Navigator.of(ctx).pop(true),
+                                        child: const Text('Excluir', style: TextStyle(color: Colors.redAccent)),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (first != true) return false;
+
+                                // 2ª confirmação
+                                final second = await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                    title: const Row(
+                                      children: [
+                                        Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                                        SizedBox(width: 10),
+                                        Text('Tem certeza?', style: TextStyle(fontSize: 16)),
+                                      ],
+                                    ),
+                                    content: const Text(
+                                      'Esta ação é irreversível.\nO arquivo não poderá ser recuperado.',
+                                      style: TextStyle(fontSize: 13),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.of(ctx).pop(false),
+                                        child: const Text('Não, manter'),
+                                      ),
+                                      TextButton(
+                                        onPressed: () => Navigator.of(ctx).pop(true),
+                                        child: const Text('Sim, excluir definitivamente',
+                                            style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                return second == true;
+                              },
                               onDismissed: (direction) {
                                 try {
                                   entity.deleteSync(recursive: true);
