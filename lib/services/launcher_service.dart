@@ -22,4 +22,54 @@ class LauncherService {
       debugPrint("Error requesting default home: ${e.message}");
     }
   }
+
+  /// Fetches physical sensors, wifi, bluetooth, NFC and infrared details from device.
+  static Future<Map<String, dynamic>> getDeviceHardwareInfo() async {
+    try {
+      final Map<dynamic, dynamic>? result = await _channel.invokeMethod('getDeviceHardwareInfo');
+      if (result != null) {
+        return Map<String, dynamic>.from(result);
+      }
+      return {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /// Checks if BIND_NOTIFICATION_LISTENER_SERVICE permission is active.
+  static Future<bool> isNotificationServiceEnabled() async {
+    try {
+      final bool result = await _channel.invokeMethod('isNotificationServiceEnabled');
+      return result;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Directs user to Android settings page to allow notification access.
+  static Future<void> requestNotificationPermission() async {
+    try {
+      await _channel.invokeMethod('requestNotificationPermission');
+    } catch (_) {}
+  }
+
+  /// Retrieves list of current active notifications.
+  static Future<List<Map<String, String>>> getNotifications() async {
+    try {
+      final List<dynamic>? result = await _channel.invokeMethod('getNotifications');
+      if (result != null) {
+        return result.map((item) => Map<String, String>.from(item)).toList();
+      }
+      return [];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Cancels/dismisses a single notification by key.
+  static Future<void> dismissNotification(String key) async {
+    try {
+      await _channel.invokeMethod('dismissNotification', {'key': key});
+    } catch (_) {}
+  }
 }

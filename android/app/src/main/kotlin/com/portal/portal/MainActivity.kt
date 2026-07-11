@@ -15,6 +15,13 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.ByteArrayOutputStream
+import android.content.ComponentName
+import android.hardware.Sensor
+import android.hardware.SensorManager
+import android.net.wifi.WifiManager
+import android.bluetooth.BluetoothAdapter
+import android.nfc.NfcAdapter
+import android.hardware.ConsumerIrManager
 
 class MainActivity : FlutterActivity() {
     private val LAUNCHER_CHANNEL = "com.portal/launcher_setup"
@@ -41,6 +48,28 @@ class MainActivity : FlutterActivity() {
                 "requestDefaultHome" -> {
                     requestDefaultHome()
                     result.success(true)
+                }
+                "getDeviceHardwareInfo" -> {
+                    result.success(getDeviceHardwareInfo())
+                }
+                "isNotificationServiceEnabled" -> {
+                    result.success(isNotificationServiceEnabled())
+                }
+                "requestNotificationPermission" -> {
+                    requestNotificationPermission()
+                    result.success(true)
+                }
+                "getNotifications" -> {
+                    result.success(getNotifications())
+                }
+                "dismissNotification" -> {
+                    val key = call.argument<String>("key")
+                    if (key != null) {
+                        dismissNotification(key)
+                        result.success(true)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "Key is null", null)
+                    }
                 }
                 else -> {
                     result.notImplemented()
@@ -189,5 +218,98 @@ class MainActivity : FlutterActivity() {
                 startActivity(intent)
             }
         }
+    }
+
+    private fun getDeviceHardwareInfo(): Map<String, Any> {
+        val info = mutableMapOf<String, Any>()
+        
+        // 1. Wifi
+        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        var wifiEnabled = false
+        var wifiSsid = "Desconectado"
+        var wifiRssi = 0
+        var wifiSpeed = 0
+        if (wifiManager != null) {
+            wifiEnabled = wifiManager.isWifiEnabled
+            if (wifiEnabled) {
+                val connectionInfo = wifiManager.connectionInfo
+                if (connectionInfo != null && connectionInfo.networkId != -1) {
+                    wifiSsid = connectionInfo.ssid.replace("\"", "")
+                    wifiRssi = connectionInfo.rssi
+                    wifiSpeed = connectionInfo.linkSpeed
+                }
+            }
+        }
+        info["wifi"] = mapOf(
+            "enabled" to wifiEnabled,
+            "ssid" to wifiSsid,
+            "rssi" to wifiRssi,
+            "speed" to wifiSpeed
+        )
+
+        // 2. Bluetooth
+        val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
+        info["bluetooth"] = mapOf(
+            "available" to (bluetoothAdapter != null),
+            "enabled" to (bluetoothAdapter?.isEnabled ?: false),
+            "state" to (if (bluetoothAdapter?.isEnabled == true) "ATIVO" else "INATIVO")
+        )
+
+        // 3. NFC
+        val nfcAdapter = NfcAdapter.getDefaultAdapter(this)
+        info["nfc"] = mapOf(
+            "available" to (nfcAdapter != null),
+            "enabled" to (nfcAdapter?.isEnabled ?: false),
+            "state" to (if (nfcAdapter != null) { if (nfcAdapter.isEnabled) "ATIVO" else "INATIVO" } else "NÃO DISPONÍVEL")
+        )
+
+        // 4. Infrared (IR)
+        val irManager = getSystemService(Context.CONSUMER_IR_SERVICE) as? ConsumerIrManager
+        val hasIr = irManager?.hasIrEmitter() ?: false
+        info["infrared"] = mapOf(
+            "available" to hasIr,
+            "state" to (if (hasIr) "ATIVO" else "NÃO DISPONÍVEL")
+        )
+
+        // 5. Sensors list
+        val sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+        val sensorList = sensorManager?.getSensorList(Sensor.TYPE_ALL) ?: emptyList()
+        val sensors = sensorList.map { sensor ->
+            mapOf(
+                "name" to sensor.name,
+                "vendor" to sensor.vendor,
+                "version" to sensor.version,
+                "power" to sensor.power.toDouble(),
+                "type" to sensor.stringType
+            )
+        }
+        info["sensors"] = sensors
+
+        return info
+    }
+
+    private fun isNotificationServiceEnabled(): Boolean {
+        val cn = ComponentName(this, MyNotificationListenerService::class.java)
+        val flat = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
+        return flat != null && flat.contains(cn.flattenToString())
+    }
+
+    private fun requestNotificationPermission() {
+        try {
+            startActivity(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS").apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        } catch (e: Exception) {
+            // fallback
+        }
+    }
+
+    private fun getNotifications(): List<Map<String, String>> {
+        MyNotificationListenerService.instance?.updateNotifications()
+        return MyNotificationListenerService.activeNotificationsList
+    }
+
+    private fun dismissNotification(key: String) {
+        MyNotificationListenerService.instance?.cancelNotification(key)
     }
 }

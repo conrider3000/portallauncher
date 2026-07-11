@@ -4,8 +4,6 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
 import 'dart:convert';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -41,6 +39,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
 
 
   ui.Image? _earthImage;
+  ui.Image? _cloudsImage;
   bool _isLoadingTexture = true;
   String _loadingStatus = 'CONECTANDO AO SISTEMA DE SATÉLITES...';
 
@@ -367,29 +366,49 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
   Future<void> _downloadEarthTexture() async {
     try {
       setState(() {
-        _loadingStatus = 'CARREGANDO DADOS DA TERRA 3D...';
+        _loadingStatus = 'CONECTANDO AOS SATÉLITES...';
       });
-      final response = await http.get(Uri.parse(
-        'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_atmos_1024.jpg'
-      )).timeout(const Duration(seconds: 15));
 
-      if (response.statusCode == 200) {
-        final codec = await ui.instantiateImageCodec(response.bodyBytes);
+      // 1. Download Earth texture (no clouds)
+      final response1 = await http.get(Uri.parse(
+        'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_atmos_1024.jpg'
+      )).timeout(const Duration(seconds: 12));
+
+      if (response1.statusCode == 200) {
+        final codec = await ui.instantiateImageCodec(response1.bodyBytes);
         final frame = await codec.getNextFrame();
-        if (mounted) {
-          setState(() {
-            _earthImage = frame.image;
-            _isLoadingTexture = false;
-          });
+        _earthImage = frame.image;
+      }
+
+      // 2. Download Earth clouds texture
+      try {
+        setState(() {
+          _loadingStatus = 'MAQUEANDO CAMADA DE NUVENS...';
+        });
+        final response2 = await http.get(Uri.parse(
+          'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_clouds_1024.png'
+        )).timeout(const Duration(seconds: 10));
+
+        if (response2.statusCode == 200) {
+          final codec = await ui.instantiateImageCodec(response2.bodyBytes);
+          final frame = await codec.getNextFrame();
+          _cloudsImage = frame.image;
         }
-      } else {
-        throw Exception('Status code: ${response.statusCode}');
+      } catch (_) {
+        // Fallback clouds if primary fails
+      }
+
+      if (mounted) {
+        setState(() {
+          _isLoadingTexture = false;
+        });
       }
     } catch (e) {
+      // Fallback: download Land Ocean image
       try {
         final response = await http.get(Uri.parse(
           'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/land_ocean_ice_cloud_2048.jpg'
-        )).timeout(const Duration(seconds: 10));
+        )).timeout(const Duration(seconds: 12));
 
         final codec = await ui.instantiateImageCodec(response.bodyBytes);
         final frame = await codec.getNextFrame();
@@ -399,7 +418,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
             _isLoadingTexture = false;
           });
         }
-      } catch (ex) {
+      } catch (_) {
         if (mounted) {
           setState(() {
             _isLoadingTexture = false;
@@ -648,6 +667,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
                           manualRotX: _manualRotationX,
                           manualRotY: _manualRotationY,
                           earthImage: _earthImage,
+                          cloudsImage: _cloudsImage,
                           geoPoints: _geoPoints,
                           isDark: isDark,
                           themeColor: theme.colorScheme.primary,
@@ -975,6 +995,7 @@ class _TexturedGlobePainter extends CustomPainter {
   final double manualRotX;
   final double manualRotY;
   final ui.Image? earthImage;
+  final ui.Image? cloudsImage;
   final List<Map<String, dynamic>> geoPoints;
   final bool isDark;
   final Color themeColor;
@@ -988,6 +1009,7 @@ class _TexturedGlobePainter extends CustomPainter {
     required this.manualRotX,
     required this.manualRotY,
     required this.earthImage,
+    required this.cloudsImage,
     required this.geoPoints,
     required this.isDark,
     required this.themeColor,
@@ -1091,46 +1113,60 @@ class _TexturedGlobePainter extends CustomPainter {
           indices: indices,
         );
 
-        final paint = Paint()
-          ..shader = ImageShader(
-            earthImage!,
-            TileMode.clamp,
-            TileMode.clamp,
-            Float64List.fromList([
-              1, 0, 0, 0,
-              0, 1, 0, 0,
-              0, 0, 1, 0,
-              0, 0, 0, 1
-            ]),
-          )
-          ..filterQuality = FilterQuality.medium;
+        final bool showEarth = filter != 'Vetor (3D)';
+        final bool showClouds = filter == 'Clima' || filter == 'Todos' || filter == 'Wikipédia';
+        final bool showGrid = filter == 'Vetor (3D)' || filter == 'Todos';
 
-        if (filter == 'Clima (IR)') {
-          paint.colorFilter = const ColorFilter.matrix(<double>[
-            -0.5, 1.5, 0.0, 0.0, 50,
-            1.0, -0.5, 1.0, 0.0, 10,
-            0.0, 1.5, -0.5, 0.0, 120,
-            0.0, 0.0, 0.0, 1.0, 0,
-          ]);
-        } else if (filter == 'Vetor (3D)') {
-          paint.colorFilter = const ColorFilter.matrix(<double>[
-            0.0, 0.0, 0.0, 0.0, 0,
-            0.2, 0.8, 0.5, 0.0, 30,
-            0.5, 0.2, 1.2, 0.0, 100,
-            0.0, 0.0, 0.0, 1.0, 0,
-          ]);
+        if (showEarth && earthImage != null) {
+          final paint = Paint()
+            ..shader = ImageShader(
+              earthImage!,
+              TileMode.clamp,
+              TileMode.clamp,
+              Float64List.fromList([
+                1, 0, 0, 0,
+                0, 1, 0, 0,
+                0, 0, 1, 0,
+                0, 0, 0, 1
+              ]),
+            )
+            ..filterQuality = FilterQuality.medium;
+
+          canvas.save();
+          canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: radius)));
+          canvas.drawVertices(vertices, BlendMode.srcOver, paint);
+          canvas.restore();
         }
 
-        canvas.save();
-        canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: radius)));
-        canvas.drawVertices(vertices, BlendMode.srcOver, paint);
+        if (showClouds && cloudsImage != null) {
+          final cloudsPaint = Paint()
+            ..shader = ImageShader(
+              cloudsImage!,
+              TileMode.clamp,
+              TileMode.clamp,
+              Float64List.fromList([
+                1, 0, 0, 0,
+                0, 1, 0, 0,
+                0, 0, 1, 0,
+                0, 0, 0, 1
+              ]),
+            )
+            ..filterQuality = FilterQuality.medium;
 
-        if (filter == 'Vetor (3D)') {
+          canvas.save();
+          canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: radius)));
+          canvas.drawVertices(vertices, BlendMode.srcOver, cloudsPaint);
+          canvas.restore();
+        }
+
+        if (showGrid) {
           final gridPaint = Paint()
             ..color = themeColor.withOpacity(0.35)
             ..strokeWidth = 0.8
             ..style = PaintingStyle.stroke;
 
+          canvas.save();
+          canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: radius)));
           for (int lat = 0; lat < latSegments; lat++) {
             for (int lon = 0; lon < lonSegments; lon++) {
               final int p00 = lat * (lonSegments + 1) + lon;
@@ -1145,9 +1181,8 @@ class _TexturedGlobePainter extends CustomPainter {
               }
             }
           }
+          canvas.restore();
         }
-
-        canvas.restore();
       }
     } else {
       final gridPaint = Paint()
@@ -1176,7 +1211,7 @@ class _TexturedGlobePainter extends CustomPainter {
       final isGPSPoint = gp['name'] == 'Minha Localização';
 
       if (filter == 'Wikipédia' && !isWikiPoint) continue;
-      if (filter == 'Clima (IR)' && (isWikiPoint || isGPSPoint)) continue;
+      if (filter == 'Clima' && (isWikiPoint || isGPSPoint)) continue;
 
       final double latRad = gp['lat'] * math.pi / 180.0;
       final double lonRad = gp['lon'] * math.pi / 180.0;

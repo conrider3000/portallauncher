@@ -9,6 +9,7 @@ import '../widgets/context_header.dart';
 import '../widgets/virtual_topography.dart';
 import '../widgets/apps_list_view.dart';
 import '../widgets/memory_explorer_view.dart';
+import '../widgets/notifications_inbox_view.dart';
 
 class LauncherScreen extends StatefulWidget {
   const LauncherScreen({super.key});
@@ -35,6 +36,27 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
   List<AppInfo> _overlayFilteredApps = [];
   final Map<String, Uint8List?> _overlayIconCache = {};
 
+  Map<String, dynamic> _hardwareInfo = {};
+  bool _loadingHardware = true;
+
+  Future<void> _loadHardwareInfo() async {
+    try {
+      final info = await LauncherService.getDeviceHardwareInfo();
+      if (mounted) {
+        setState(() {
+          _hardwareInfo = info;
+          _loadingHardware = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _loadingHardware = false;
+        });
+      }
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -42,6 +64,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
     _checkDefaultStatus();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: [SystemUiOverlay.bottom]);
     _loadAppsForOverlay();
+    _loadHardwareInfo();
 
     // Listen to Home button / swipe-up gesture from Android
     const MethodChannel('com.portal/launcher_setup').setMethodCallHandler((call) async {
@@ -172,7 +195,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
         child: Scaffold(
         key: _scaffoldKey,
         drawer: Drawer(
-          width: 280,
+          width: 290,
           backgroundColor: Colors.transparent,
           elevation: 0,
           child: ClipRRect(
@@ -181,71 +204,104 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
               filter: ui.ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
               child: Container(
                 decoration: BoxDecoration(
-                  color: (isDark ? const Color(0xFF1C1C1E) : const Color(0xFFE5E5EA)).withOpacity(0.7),
+                  color: (isDark ? const Color(0xFF0F1411) : const Color(0xFFF0F4F1)).withOpacity(0.85),
                   borderRadius: const BorderRadius.horizontal(right: Radius.circular(32)),
                   border: Border(
                     right: BorderSide(
-                      color: (isDark ? Colors.white : Colors.black).withOpacity(0.08),
+                      color: theme.colorScheme.primary.withOpacity(0.12),
                       width: 1.5,
                     ),
                   ),
                 ),
                 child: SafeArea(
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 24.0),
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
                             Icon(
-                              Icons.dashboard_customize_rounded,
+                              Icons.sensors_rounded,
                               color: theme.colorScheme.primary,
                               size: 24,
                             ),
-                            const SizedBox(width: 12),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Painel de Sensores',
+                                style: TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w900,
+                                  color: theme.colorScheme.primary,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                            ),
+                            if (!_loadingHardware)
+                              IconButton(
+                                icon: Icon(Icons.refresh_rounded, size: 18, color: theme.colorScheme.primary.withOpacity(0.6)),
+                                constraints: const BoxConstraints(),
+                                padding: EdgeInsets.zero,
+                                onPressed: () {
+                                  setState(() => _loadingHardware = true);
+                                  _loadHardwareInfo();
+                                },
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Divider(color: theme.colorScheme.primary.withOpacity(0.15)),
+                        
+                        Expanded(
+                          child: _loadingHardware
+                              ? Center(
+                                  child: CircularProgressIndicator(
+                                    color: theme.colorScheme.primary,
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : ListView(
+                                  physics: const BouncingScrollPhysics(),
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  children: [
+                                    _buildSectionTitle('RÁDIOS & COMUNICAÇÃO', theme),
+                                    _buildWifiTile(theme, isDark),
+                                    _buildRadioTile('Bluetooth', _hardwareInfo['bluetooth'] ?? {}, Icons.bluetooth_rounded, theme, isDark),
+                                    _buildRadioTile('NFC (Near Field)', _hardwareInfo['nfc'] ?? {}, Icons.nfc_rounded, theme, isDark),
+                                    _buildRadioTile('Infravermelho', _hardwareInfo['infrared'] ?? {}, Icons.settings_remote_rounded, theme, isDark),
+                                    
+                                    const SizedBox(height: 16),
+                                    
+                                    _buildSectionTitle('SENSORES DE HARDWARE', theme),
+                                    ..._buildPhysicalSensorsList(theme, isDark),
+                                  ],
+                                ),
+                        ),
+                        
+                        Divider(color: theme.colorScheme.primary.withOpacity(0.15)),
+                        const SizedBox(height: 6),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
                             Text(
-                              'Colateral Bar',
+                              'PORTAL OS v1.0.3',
                               style: TextStyle(
-                                fontSize: 18,
+                                fontSize: 9,
+                                fontWeight: FontWeight.w800,
+                                color: theme.colorScheme.primary.withOpacity(0.4),
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                            Text(
+                              'HARDWARE ACTIVE',
+                              style: TextStyle(
+                                fontSize: 8,
                                 fontWeight: FontWeight.bold,
-                                color: isDark ? const Color(0xFFFAFAFA) : Colors.black,
+                                color: theme.colorScheme.secondary.withOpacity(0.6),
                               ),
                             ),
                           ],
-                        ),
-                        const SizedBox(height: 12),
-                        Divider(color: (isDark ? Colors.white : Colors.black).withOpacity(0.08)),
-                        const SizedBox(height: 16),
-                        _buildSidebarItem(
-                          context,
-                          icon: Icons.widgets_rounded,
-                          label: 'Adicionar Widgets',
-                          subtitle: 'Personalize sua tela de início',
-                        ),
-                        const SizedBox(height: 16),
-                        _buildSidebarItem(
-                          context,
-                          icon: Icons.settings_suggest_rounded,
-                          label: 'Configurações do Portal',
-                          subtitle: 'Temas, layouts e transições',
-                        ),
-                        const SizedBox(height: 16),
-                        _buildSidebarItem(
-                          context,
-                          icon: Icons.info_outline_rounded,
-                          label: 'Sobre o Sistema',
-                          subtitle: 'Licença e créditos de código',
-                        ),
-                        const Spacer(),
-                        Text(
-                          'PORTAL OS v1.0.3',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: (isDark ? Colors.white : Colors.black).withOpacity(0.3),
-                            letterSpacing: 1.0,
-                          ),
                         ),
                       ],
                     ),
@@ -361,7 +417,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                     ? 'Home'
                                     : _currentPageIndex == 1
                                         ? 'Memória'
-                                        : 'Apps',
+                                        : 'Aplicativos',
                                 style: TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.w800,
@@ -465,6 +521,8 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                         const MemoryExplorerView(),
                         // Page 2: Niagara-style A-Z list
                         const AppsListView(),
+                        // Page 3: Device Notifications Inbox
+                        const NotificationsInboxView(),
                       ],
                     ),
                   ),
@@ -531,16 +589,16 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                           children: [
                                             Icon(
                                               Icons.public_rounded,
-                                              size: 18,
+                                              size: 16,
                                               color: _currentPageIndex == 0
                                                   ? theme.colorScheme.primary
                                                   : inactiveColor,
                                             ),
-                                            const SizedBox(width: 6),
+                                            const SizedBox(width: 4),
                                             Text(
                                               'Home',
                                               style: TextStyle(
-                                                fontSize: 12,
+                                                fontSize: 10,
                                                 fontWeight: FontWeight.bold,
                                                 color: _currentPageIndex == 0
                                                     ? theme.colorScheme.primary
@@ -555,10 +613,10 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                   // First Divider
                                   Container(
                                     width: 1,
-                                    height: 20,
+                                    height: 18,
                                     color: theme.colorScheme.primary.withOpacity(0.18),
                                   ),
-                                  // Middle Tab (Memória)
+                                  // Middle Tab 1 (Memória)
                                   Expanded(
                                     child: GestureDetector(
                                       onTap: () => _navigateToPage(1),
@@ -575,16 +633,16 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                           children: [
                                             Icon(
                                               Icons.sd_storage_rounded,
-                                              size: 18,
+                                              size: 16,
                                               color: _currentPageIndex == 1
                                                   ? theme.colorScheme.primary
                                                   : inactiveColor,
                                             ),
-                                            const SizedBox(width: 6),
+                                            const SizedBox(width: 4),
                                             Text(
                                               'Memória',
                                               style: TextStyle(
-                                                fontSize: 12,
+                                                fontSize: 10,
                                                 fontWeight: FontWeight.bold,
                                                 color: _currentPageIndex == 1
                                                     ? theme.colorScheme.primary
@@ -599,10 +657,10 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                   // Second Divider
                                   Container(
                                     width: 1,
-                                    height: 20,
+                                    height: 18,
                                     color: theme.colorScheme.primary.withOpacity(0.18),
                                   ),
-                                  // Right Tab (Apps)
+                                  // Middle Tab 2 (Aplicativos)
                                   Expanded(
                                     child: GestureDetector(
                                       onTap: () => _navigateToPage(2),
@@ -613,25 +671,69 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                           color: _currentPageIndex == 2
                                               ? theme.colorScheme.primary.withOpacity(0.12)
                                               : Colors.transparent,
-                                          borderRadius: const BorderRadius.horizontal(right: Radius.circular(23)),
                                         ),
                                         child: Row(
                                           mainAxisAlignment: MainAxisAlignment.center,
                                           children: [
                                             Icon(
                                               Icons.apps_rounded,
-                                              size: 18,
+                                              size: 16,
                                               color: _currentPageIndex == 2
                                                   ? theme.colorScheme.primary
                                                   : inactiveColor,
                                             ),
-                                            const SizedBox(width: 6),
+                                            const SizedBox(width: 4),
                                             Text(
                                               'Apps',
                                               style: TextStyle(
-                                                fontSize: 12,
+                                                fontSize: 10,
                                                 fontWeight: FontWeight.bold,
                                                 color: _currentPageIndex == 2
+                                                    ? theme.colorScheme.primary
+                                                    : inactiveColor,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  // Third Divider
+                                  Container(
+                                    width: 1,
+                                    height: 18,
+                                    color: theme.colorScheme.primary.withOpacity(0.18),
+                                  ),
+                                  // Right Tab (Correio)
+                                  Expanded(
+                                    child: GestureDetector(
+                                      onTap: () => _navigateToPage(3),
+                                      child: Container(
+                                        height: double.infinity,
+                                        alignment: Alignment.center,
+                                        decoration: BoxDecoration(
+                                          color: _currentPageIndex == 3
+                                              ? theme.colorScheme.primary.withOpacity(0.12)
+                                              : Colors.transparent,
+                                          borderRadius: const BorderRadius.horizontal(right: Radius.circular(23)),
+                                        ),
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              Icons.mail_rounded,
+                                              size: 16,
+                                              color: _currentPageIndex == 3
+                                                  ? theme.colorScheme.primary
+                                                  : inactiveColor,
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'Correio',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                color: _currentPageIndex == 3
                                                     ? theme.colorScheme.primary
                                                     : inactiveColor,
                                               ),
@@ -1055,7 +1157,7 @@ Widget _buildSidebarItem(
 
   Widget _buildEarthFilterBar(ThemeData theme, bool isDark) {
 
-    final filters = ['Todos', 'Clima (IR)', 'Wikipédia', 'Vetor (3D)'];
+    final filters = ['Todos', 'Satélite', 'Clima', 'Wikipédia', 'Vetor (3D)'];
     return ValueListenableBuilder<String>(
       valueListenable: VirtualTopography.earthFilterNotifier,
       builder: (context, currentFilter, child) {
@@ -1105,5 +1207,203 @@ Widget _buildSidebarItem(
         );
       },
     );
+  Widget _buildSectionTitle(String title, ThemeData theme) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8.0, bottom: 8.0, left: 4.0),
+      child: Text(
+        title,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w900,
+          color: theme.colorScheme.primary.withOpacity(0.55),
+          letterSpacing: 0.8,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWifiTile(ThemeData theme, bool isDark) {
+    final wifi = _hardwareInfo['wifi'] as Map? ?? {};
+    final bool enabled = wifi['enabled'] == true;
+    final String ssid = wifi['ssid'] ?? 'Desconectado';
+    final int speed = wifi['speed'] ?? 0;
+    final int rssi = wifi['rssi'] ?? 0;
+
+    String subtitle = 'Inativo';
+    if (enabled) {
+      if (ssid != 'Desconectado' && ssid.isNotEmpty) {
+        subtitle = '$ssid • ${speed > 0 ? "$speed Mbps" : ""} • ${rssi}dBm';
+      } else {
+        subtitle = 'Ativo (Sem conexão)';
+      }
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: (isDark ? Colors.white : Colors.black).withOpacity(0.04),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: theme.colorScheme.primary.withOpacity(0.08),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.wifi_rounded, size: 20, color: enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface.withOpacity(0.35)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Wi-Fi',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(fontSize: 10, color: theme.colorScheme.onSurface.withOpacity(0.55)),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: (enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface).withOpacity(0.08),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              enabled ? 'ATIVO' : 'DESATIVADO',
+              style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface.withOpacity(0.5)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRadioTile(String title, Map<dynamic, dynamic> data, IconData icon, ThemeData theme, bool isDark) {
+    final bool available = data['available'] != false;
+    final bool enabled = data['enabled'] == true;
+    final String state = data['state'] ?? 'INATIVO';
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: (isDark ? Colors.white : Colors.black).withOpacity(0.04),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: theme.colorScheme.primary.withOpacity(0.08),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface.withOpacity(0.35)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  available ? (enabled ? 'Ativo e pronto' : 'Disponível, inativo') : 'Não integrado ao hardware',
+                  style: TextStyle(fontSize: 10, color: theme.colorScheme.onSurface.withOpacity(0.55)),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: (enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface).withOpacity(0.08),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              state,
+              style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface.withOpacity(0.5)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildPhysicalSensorsList(ThemeData theme, bool isDark) {
+    final rawSensors = _hardwareInfo['sensors'] as List?;
+    if (rawSensors == null || rawSensors.isEmpty) {
+      return [
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Center(
+            child: Text(
+              'Nenhum sensor de hardware detectado',
+              style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurface.withOpacity(0.4)),
+            ),
+          ),
+        )
+      ];
+    }
+
+    return rawSensors.map((sensor) {
+      final String name = sensor['name'] ?? 'Sensor';
+      final String vendor = sensor['vendor'] ?? 'Desconhecido';
+      final double power = (sensor['power'] as num?)?.toDouble() ?? 0.0;
+      final String type = (sensor['type'] as String? ?? 'Desconhecido').split('.').last.toUpperCase();
+
+      return Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: (isDark ? Colors.white : Colors.black).withOpacity(0.02),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: theme.colorScheme.primary.withOpacity(0.04),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.sensors_rounded, size: 16, color: theme.colorScheme.primary.withOpacity(0.7)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface.withOpacity(0.9)),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Fabricante: $vendor • Consumo: ${power.toStringAsFixed(2)}mA',
+                    style: TextStyle(fontSize: 9, color: theme.colorScheme.onSurface.withOpacity(0.5)),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withOpacity(0.06),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Text(
+                type,
+                style: TextStyle(fontSize: 7, fontWeight: FontWeight.bold, color: theme.colorScheme.primary.withOpacity(0.85)),
+              ),
+            ),
+          ],
+        ),
+      );
+    }).toList();
   }
 }
