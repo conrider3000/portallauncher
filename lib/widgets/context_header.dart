@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:geolocator/geolocator.dart';
 import '../utils/theme_manager.dart';
 
 class MultiCalendarHelper {
@@ -190,8 +192,11 @@ class ContextHeader extends StatefulWidget {
 class _ContextHeaderState extends State<ContextHeader> {
   late DateTime _currentTime;
   late Timer _timer;
-  String _weatherTemp = '24°C';
-  String _weatherDesc = 'Céu Limpo';
+  String _weatherTemp = '--';
+  String _weatherDesc = '--';
+  String _cityName = 'Localizando...';
+  double _userLat = -25.4284; // Curitiba default until GPS resolves
+  double _userLon = -49.2733;
   bool _showPanel = false;
   int _calendarSystemIndex = 0; // 0: Gregorian, 1: Chinese, 2: Hebrew, 3: Hijri
 
@@ -217,7 +222,63 @@ class _ContextHeaderState extends State<ContextHeader> {
         });
       }
     });
-    _fetchWeather();
+    _initLocation();
+  }
+
+  Future<void> _initLocation() async {
+    try {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        // Fallback to Curitiba
+        await _fetchWeather(_userLat, _userLon);
+        await _fetchCityName(_userLat, _userLon);
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.low,
+        timeLimit: const Duration(seconds: 10),
+      );
+      if (mounted) {
+        setState(() {
+          _userLat = pos.latitude;
+          _userLon = pos.longitude;
+        });
+      }
+      await _fetchCityName(pos.latitude, pos.longitude);
+      await _fetchWeather(pos.latitude, pos.longitude);
+    } catch (_) {
+      await _fetchWeather(_userLat, _userLon);
+      await _fetchCityName(_userLat, _userLon);
+    }
+  }
+
+  Future<void> _fetchCityName(double lat, double lon) async {
+    try {
+      final uri = Uri.parse(
+          'https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lon&format=json&zoom=10');
+      final response = await http.get(uri, headers: {'Accept-Language': 'pt-BR'});
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final address = data['address'] as Map<String, dynamic>?;
+        final city = address?['city'] ??
+            address?['town'] ??
+            address?['village'] ??
+            address?['county'] ??
+            'Desconhecido';
+        final country = address?['country_code']?.toString().toUpperCase() ?? '';
+        if (mounted) {
+          setState(() {
+            _cityName = '$city, $country';
+          });
+        }
+      }
+    } catch (_) {
+      if (mounted) setState(() => _cityName = 'Localização GPS');
+    }
   }
 
   @override
@@ -226,10 +287,10 @@ class _ContextHeaderState extends State<ContextHeader> {
     super.dispose();
   }
 
-  Future<void> _fetchWeather() async {
+  Future<void> _fetchWeather(double lat, double lon) async {
     try {
       final uri = Uri.parse(
-          'https://api.open-meteo.com/v1/forecast?latitude=-23.5489&longitude=-46.6388&current=temperature_2m,weather_code&timezone=America%2FSao_Paulo');
+          'https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current=temperature_2m,weather_code&timezone=auto');
       final response = await http.get(uri);
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -474,7 +535,7 @@ class _ContextHeaderState extends State<ContextHeader> {
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
-                                    "São Paulo, BR • $_weatherTemp, $_weatherDesc • ${moonInfo['name']}",
+                                    "$_cityName • $_weatherTemp, $_weatherDesc",
                                     style: theme.textTheme.bodySmall?.copyWith(
                                       color: theme.colorScheme.onSurface.withOpacity(0.7),
                                     ),

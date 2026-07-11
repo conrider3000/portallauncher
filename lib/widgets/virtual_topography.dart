@@ -105,7 +105,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     super.initState();
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 40),
+      duration: const Duration(seconds: 86400), // 24h = real Earth rotation
     )..repeat();
 
     _downloadEarthTexture();
