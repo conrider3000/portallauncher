@@ -1,7 +1,9 @@
 import 'dart:ui' as ui;
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/launcher_service.dart';
+import '../services/apps_service.dart';
 import '../utils/platform_helper.dart';
 import '../widgets/context_header.dart';
 import '../widgets/virtual_topography.dart';
@@ -28,12 +30,28 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
   bool _searchOverlayOpen = false;
   double _lastPointerDownX = 0.0;
 
+  // For unified app search inside the overlay
+  List<AppInfo> _allApps = [];
+  List<AppInfo> _overlayFilteredApps = [];
+  final Map<String, Uint8List?> _overlayIconCache = {};
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _checkDefaultStatus();
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: [SystemUiOverlay.bottom]);
+    _loadAppsForOverlay();
+  }
+
+  Future<void> _loadAppsForOverlay() async {
+    final apps = await AppsService.getInstalledApps();
+    if (mounted) {
+      setState(() {
+        _allApps = apps;
+        _overlayFilteredApps = [];
+      });
+    }
   }
 
   @override
@@ -750,73 +768,161 @@ Widget _buildSidebarItem(
 }
 
   Widget _buildSearchOverlay(ThemeData theme, bool isDark) {
+    final hasApps = _overlayFilteredApps.isNotEmpty;
     return Padding(
       key: const ValueKey('searchoverlay'),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(20),
         child: BackdropFilter(
-          filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          filter: ui.ImageFilter.blur(sigmaX: 16, sigmaY: 16),
           child: Container(
-            height: 44,
             decoration: BoxDecoration(
-              color: (isDark ? Colors.black : Colors.white).withOpacity(0.55),
+              color: (isDark ? Colors.black : Colors.white).withOpacity(0.6),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
                 color: theme.colorScheme.primary.withOpacity(0.25),
                 width: 1.2,
               ),
             ),
-            child: Row(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                const SizedBox(width: 14),
-                Icon(Icons.search_rounded, size: 18, color: theme.colorScheme.primary),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextField(
-                    controller: _overlaySearchController,
-                    focusNode: _overlayFocusNode,
-                    autofocus: true,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: isDark ? const Color(0xFFFAFAFA) : Colors.black,
-                    ),
-                    decoration: InputDecoration(
-                      border: InputBorder.none,
-                      hintText: _currentPageIndex == 0
-                          ? 'Buscar local no globo...'
-                          : _currentPageIndex == 1
-                              ? 'Buscar arquivo...'
-                              : 'Buscar aplicativo...',
-                      hintStyle: TextStyle(
-                        fontSize: 13,
-                        color: (isDark ? Colors.white : Colors.black).withOpacity(0.35),
+                // ── Search field row ──────────────────────────────────────
+                SizedBox(
+                  height: 44,
+                  child: Row(
+                    children: [
+                      const SizedBox(width: 14),
+                      Icon(Icons.search_rounded, size: 18, color: theme.colorScheme.primary),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: TextField(
+                          controller: _overlaySearchController,
+                          focusNode: _overlayFocusNode,
+                          autofocus: true,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: isDark ? const Color(0xFFFAFAFA) : Colors.black,
+                          ),
+                          decoration: InputDecoration(
+                            border: InputBorder.none,
+                            hintText: 'Buscar apps, locais...',
+                            hintStyle: TextStyle(
+                              fontSize: 13,
+                              color: (isDark ? Colors.white : Colors.black).withOpacity(0.35),
+                            ),
+                            isDense: true,
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                          onChanged: (text) {
+                            // Always search apps
+                            final q = text.toLowerCase().trim();
+                            setState(() {
+                              _overlayFilteredApps = q.isEmpty
+                                  ? []
+                                  : _allApps.where((app) {
+                                      return app.label.toLowerCase().contains(q) ||
+                                          app.packageName.toLowerCase().contains(q);
+                                    }).take(8).toList();
+                            });
+                            // Also fire page-specific search
+                            if (_currentPageIndex == 0) {
+                              VirtualTopography.mapSearchQueryNotifier.value = text;
+                            } else if (_currentPageIndex == 1) {
+                              MemoryExplorerView.fileSearchQueryNotifier.value = text;
+                            }
+                            AppsListView.searchQueryNotifier.value = text;
+                          },
+                        ),
                       ),
-                      isDense: true,
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    onChanged: (text) {
-                      if (_currentPageIndex == 0) {
-                        VirtualTopography.mapSearchQueryNotifier.value = text;
-                      } else if (_currentPageIndex == 1) {
-                        MemoryExplorerView.fileSearchQueryNotifier.value = text;
-                      } else {
-                        AppsListView.searchQueryNotifier.value = text;
-                      }
-                    },
+                      GestureDetector(
+                        onTap: _closeSearchOverlay,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Icon(
+                            Icons.close_rounded,
+                            size: 18,
+                            color: (isDark ? Colors.white : Colors.black).withOpacity(0.5),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                GestureDetector(
-                  onTap: _closeSearchOverlay,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Icon(
-                      Icons.close_rounded,
-                      size: 18,
-                      color: (isDark ? Colors.white : Colors.black).withOpacity(0.5),
+
+                // ── App results ───────────────────────────────────────────
+                if (hasApps) ...[
+                  Divider(
+                    height: 1,
+                    color: (isDark ? Colors.white : Colors.black).withOpacity(0.07),
+                  ),
+                  SizedBox(
+                    height: 72,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      itemCount: _overlayFilteredApps.length,
+                      itemBuilder: (context, index) {
+                        final app = _overlayFilteredApps[index];
+                        return GestureDetector(
+                          onTap: () {
+                            AppsService.launchApp(app.packageName, app.className);
+                            _closeSearchOverlay();
+                          },
+                          child: Container(
+                            width: 56,
+                            margin: const EdgeInsets.only(right: 8),
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                FutureBuilder<Uint8List?>(
+                                  future: AppsService.getAppIcon(app.packageName),
+                                  builder: (context, snap) {
+                                    if (snap.hasData && snap.data != null) {
+                                      return ClipRRect(
+                                        borderRadius: BorderRadius.circular(10),
+                                        child: Image.memory(snap.data!, width: 36, height: 36, fit: BoxFit.cover),
+                                      );
+                                    }
+                                    return Container(
+                                      width: 36,
+                                      height: 36,
+                                      decoration: BoxDecoration(
+                                        color: theme.colorScheme.primary.withOpacity(0.15),
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: Text(
+                                        app.label.isNotEmpty ? app.label[0].toUpperCase() : '?',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: theme.colorScheme.primary,
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                                const SizedBox(height: 3),
+                                Text(
+                                  app.label,
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    color: (isDark ? Colors.white : Colors.black).withOpacity(0.75),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
@@ -824,6 +930,7 @@ Widget _buildSidebarItem(
       ),
     );
   }
+
 
   Widget _buildEarthFilterBar(ThemeData theme, bool isDark) {
 
