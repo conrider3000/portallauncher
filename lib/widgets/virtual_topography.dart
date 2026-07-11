@@ -593,10 +593,6 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
           decoration: BoxDecoration(
             color: (isDark ? Colors.black : Colors.white).withOpacity(isDark ? 0.3 : 0.6),
             borderRadius: BorderRadius.circular(24),
-            border: Border.all(
-              color: (isDark ? Colors.white : Colors.black).withOpacity(0.08),
-              width: 1.0,
-            ),
           ),
           child: ClipRRect(
             borderRadius: BorderRadius.circular(24),
