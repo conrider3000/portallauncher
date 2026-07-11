@@ -22,7 +22,10 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
   bool _isDefault = true;
 
   final TextEditingController _searchController = TextEditingController();
+  final TextEditingController _overlaySearchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  final FocusNode _overlayFocusNode = FocusNode();
+  bool _searchOverlayOpen = false;
   double _lastPointerDownX = 0.0;
 
   @override
@@ -38,7 +41,9 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
     WidgetsBinding.instance.removeObserver(this);
     _pageController.dispose();
     _searchController.dispose();
+    _overlaySearchController.dispose();
     _searchFocusNode.dispose();
+    _overlayFocusNode.dispose();
     super.dispose();
   }
 
@@ -62,12 +67,31 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
   void _onPageChanged(int index) {
     setState(() {
       _currentPageIndex = index;
+      _searchOverlayOpen = false;
     });
     _searchController.clear();
+    _overlaySearchController.clear();
     _searchFocusNode.unfocus();
-    AppsListView.searchQueryNotifier.value = ''; // Reset app filter
-    VirtualTopography.mapSearchQueryNotifier.value = ''; // Reset map filter
-    MemoryExplorerView.fileSearchQueryNotifier.value = ''; // Reset file filter
+    _overlayFocusNode.unfocus();
+    AppsListView.searchQueryNotifier.value = '';
+    VirtualTopography.mapSearchQueryNotifier.value = '';
+    MemoryExplorerView.fileSearchQueryNotifier.value = '';
+  }
+
+  void _openSearchOverlay() {
+    setState(() => _searchOverlayOpen = true);
+    Future.delayed(const Duration(milliseconds: 80), () {
+      _overlayFocusNode.requestFocus();
+    });
+  }
+
+  void _closeSearchOverlay() {
+    setState(() => _searchOverlayOpen = false);
+    _overlaySearchController.clear();
+    _overlayFocusNode.unfocus();
+    VirtualTopography.mapSearchQueryNotifier.value = '';
+    MemoryExplorerView.fileSearchQueryNotifier.value = '';
+    AppsListView.searchQueryNotifier.value = '';
   }
 
   void _navigateToPage(int index) {
@@ -316,18 +340,30 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                     ],
                   ),
 
-                  if (_currentPageIndex == 0)
-                    ValueListenableBuilder<bool>(
-                      valueListenable: ContextHeader.isPanelOpenNotifier,
-                      builder: (context, isPanelOpen, child) {
-                        return AnimatedSize(
-                          duration: const Duration(milliseconds: 200),
-                          child: isPanelOpen
-                              ? const SizedBox.shrink()
-                              : _buildEarthFilterBar(theme, isDark),
-                        );
-                      },
+                  // Filter bar OR search overlay (mutually exclusive)
+                  AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    transitionBuilder: (child, anim) => FadeTransition(
+                      opacity: anim,
+                      child: SizeTransition(sizeFactor: anim, child: child),
                     ),
+                    child: _searchOverlayOpen
+                        ? _buildSearchOverlay(theme, isDark)
+                        : (_currentPageIndex == 0
+                            ? ValueListenableBuilder<bool>(
+                                key: const ValueKey('filterbar'),
+                                valueListenable: ContextHeader.isPanelOpenNotifier,
+                                builder: (context, isPanelOpen, child) {
+                                  return AnimatedSize(
+                                    duration: const Duration(milliseconds: 200),
+                                    child: isPanelOpen
+                                        ? const SizedBox.shrink()
+                                        : _buildEarthFilterBar(theme, isDark),
+                                  );
+                                },
+                              )
+                            : const SizedBox.shrink(key: ValueKey('empty'))),
+                  ),
 
                   // Warning banner if Portal is not the default launcher
                   if (!_isDefault)
@@ -610,9 +646,12 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                             hintStyle: TextStyle(
                               color: isDark ? const Color(0xFFECEFF1).withOpacity(0.4) : Colors.black.withOpacity(0.35),
                             ),
-                            suffixIcon: Icon(
-                              Icons.search_rounded,
-                              color: theme.colorScheme.primary.withOpacity(0.7),
+                            suffixIcon: GestureDetector(
+                              onTap: _openSearchOverlay,
+                              child: Icon(
+                                Icons.search_rounded,
+                                color: theme.colorScheme.primary.withOpacity(0.7),
+                              ),
                             ),
                             filled: true,
                             fillColor: isDark ? const Color(0xFF070D09) : const Color(0xFFF4F7F5),
@@ -710,7 +749,84 @@ Widget _buildSidebarItem(
   );
 }
 
+  Widget _buildSearchOverlay(ThemeData theme, bool isDark) {
+    return Padding(
+      key: const ValueKey('searchoverlay'),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: BackdropFilter(
+          filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Container(
+            height: 44,
+            decoration: BoxDecoration(
+              color: (isDark ? Colors.black : Colors.white).withOpacity(0.55),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: theme.colorScheme.primary.withOpacity(0.25),
+                width: 1.2,
+              ),
+            ),
+            child: Row(
+              children: [
+                const SizedBox(width: 14),
+                Icon(Icons.search_rounded, size: 18, color: theme.colorScheme.primary),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: TextField(
+                    controller: _overlaySearchController,
+                    focusNode: _overlayFocusNode,
+                    autofocus: true,
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: isDark ? const Color(0xFFFAFAFA) : Colors.black,
+                    ),
+                    decoration: InputDecoration(
+                      border: InputBorder.none,
+                      hintText: _currentPageIndex == 0
+                          ? 'Buscar local no globo...'
+                          : _currentPageIndex == 1
+                              ? 'Buscar arquivo...'
+                              : 'Buscar aplicativo...',
+                      hintStyle: TextStyle(
+                        fontSize: 13,
+                        color: (isDark ? Colors.white : Colors.black).withOpacity(0.35),
+                      ),
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    onChanged: (text) {
+                      if (_currentPageIndex == 0) {
+                        VirtualTopography.mapSearchQueryNotifier.value = text;
+                      } else if (_currentPageIndex == 1) {
+                        MemoryExplorerView.fileSearchQueryNotifier.value = text;
+                      } else {
+                        AppsListView.searchQueryNotifier.value = text;
+                      }
+                    },
+                  ),
+                ),
+                GestureDetector(
+                  onTap: _closeSearchOverlay,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Icon(
+                      Icons.close_rounded,
+                      size: 18,
+                      color: (isDark ? Colors.white : Colors.black).withOpacity(0.5),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildEarthFilterBar(ThemeData theme, bool isDark) {
+
     final filters = ['Todos', 'Clima (IR)', 'Wikipédia', 'Vetor (3D)'];
     return ValueListenableBuilder<String>(
       valueListenable: VirtualTopography.earthFilterNotifier,
