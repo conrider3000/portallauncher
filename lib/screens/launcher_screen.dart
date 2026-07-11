@@ -1378,59 +1378,121 @@ Widget _buildSidebarItem(
       ];
     }
 
-    return rawSensors.map((sensor) {
-      final String name = sensor['name'] ?? 'Sensor';
-      final String vendor = sensor['vendor'] ?? 'Desconhecido';
-      final double power = (sensor['power'] as num?)?.toDouble() ?? 0.0;
-      final String type = (sensor['type'] as String? ?? 'Desconhecido').split('.').last.toUpperCase();
+    final categories = <String, List<dynamic>>{
+      'Movimento & Orientação': [],
+      'Ambiente & Clima': [],
+      'Posição & Proximidade': [],
+      'Sensores Auxiliares': [],
+    };
 
-      return Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: (isDark ? Colors.white : Colors.black).withOpacity(0.02),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: theme.colorScheme.primary.withOpacity(0.04),
+    for (var sensor in rawSensors) {
+      final String type = (sensor['type'] as String? ?? '').toLowerCase();
+      if (type.contains('accel') || type.contains('gyro') || type.contains('gravity') ||
+          type.contains('linear') || type.contains('rotat') || type.contains('step') ||
+          type.contains('orient') || type.contains('motion')) {
+        categories['Movimento & Orientação']!.add(sensor);
+      } else if (type.contains('light') || type.contains('temp') || type.contains('pressure') ||
+                 type.contains('humid') || type.contains('barom')) {
+        categories['Ambiente & Clima']!.add(sensor);
+      } else if (type.contains('proxim') || type.contains('magn') || type.contains('compass')) {
+        categories['Posição & Proximidade']!.add(sensor);
+      } else {
+        categories['Sensores Auxiliares']!.add(sensor);
+      }
+    }
+
+    final List<Widget> listItems = [];
+
+    categories.forEach((categoryName, sensorsList) {
+      if (sensorsList.isNotEmpty) {
+        listItems.add(
+          Padding(
+            padding: const EdgeInsets.only(top: 14.0, bottom: 6.0, left: 4.0),
+            child: Row(
+              children: [
+                Icon(
+                  categoryName == 'Movimento & Orientação'
+                      ? Icons.screen_rotation_rounded
+                      : categoryName == 'Ambiente & Clima'
+                          ? Icons.thermostat_rounded
+                          : categoryName == 'Posição & Proximidade'
+                              ? Icons.explore_rounded
+                              : Icons.tune_rounded,
+                  size: 11,
+                  color: theme.colorScheme.secondary,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  categoryName.toUpperCase(),
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    color: theme.colorScheme.secondary,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.sensors_rounded, size: 16, color: theme.colorScheme.primary.withOpacity(0.7)),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    name,
-                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface.withOpacity(0.9)),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    'Fabricante: $vendor • Consumo: ${power.toStringAsFixed(2)}mA',
-                    style: TextStyle(fontSize: 9, color: theme.colorScheme.onSurface.withOpacity(0.5)),
-                  ),
-                ],
+        );
+
+        listItems.addAll(sensorsList.map((sensor) {
+          final String name = sensor['name'] ?? 'Sensor';
+          final String vendor = sensor['vendor'] ?? 'Desconhecido';
+          final double power = (sensor['power'] as num?)?.toDouble() ?? 0.0;
+          final String type = (sensor['type'] as String? ?? 'Desconhecido').split('.').last.toUpperCase();
+
+          return Container(
+            margin: const EdgeInsets.symmetric(vertical: 3),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: (isDark ? Colors.white : Colors.black).withOpacity(0.02),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: theme.colorScheme.primary.withOpacity(0.04),
               ),
             ),
-            const SizedBox(width: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withOpacity(0.06),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                type,
-                style: TextStyle(fontSize: 7, fontWeight: FontWeight.bold, color: theme.colorScheme.primary.withOpacity(0.85)),
-              ),
+            child: Row(
+              children: [
+                Icon(Icons.sensors_rounded, size: 14, color: theme.colorScheme.primary.withOpacity(0.6)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        name,
+                        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface.withOpacity(0.85)),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Fabricante: $vendor • Consumo: ${power.toStringAsFixed(2)}mA',
+                        style: TextStyle(fontSize: 8.5, color: theme.colorScheme.onSurface.withOpacity(0.45)),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.primary.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(5),
+                  ),
+                  child: Text(
+                    type,
+                    style: TextStyle(fontSize: 6.5, fontWeight: FontWeight.bold, color: theme.colorScheme.primary.withOpacity(0.8)),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      );
-    }).toList();
+          );
+        }).toList());
+      }
+    });
+
+    return listItems;
   }
 }

@@ -418,67 +418,63 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     );
   }
 
+  Future<ui.Image?> _downloadImage(List<String> urls) async {
+    for (final url in urls) {
+      try {
+        final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 8));
+        if (response.statusCode == 200) {
+          final codec = await ui.instantiateImageCodec(response.bodyBytes);
+          final frame = await codec.getNextFrame();
+          return frame.image;
+        }
+      } catch (e) {
+        debugPrint('Erro ao baixar $url: $e');
+      }
+    }
+    return null;
+  }
+
   Future<void> _downloadEarthTexture() async {
     try {
       setState(() {
         _loadingStatus = 'CONECTANDO AOS SATÉLITES...';
       });
 
-      // 1. Download Earth texture (no clouds)
-      final response1 = await http.get(Uri.parse(
-        'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_atmos_1024.jpg'
-      )).timeout(const Duration(seconds: 12));
+      final earthUrls = [
+        'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_atmos_2048.jpg',
+        'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_atmos_2048.jpg',
+        'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/land_ocean_ice_cloud_2048.jpg',
+        'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/land_ocean_ice_cloud_2048.jpg',
+      ];
 
-      if (response1.statusCode == 200) {
-        final codec = await ui.instantiateImageCodec(response1.bodyBytes);
-        final frame = await codec.getNextFrame();
-        _earthImage = frame.image;
-      }
+      final cloudsUrls = [
+        'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_clouds_1024.png',
+        'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_clouds_1024.png',
+        'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_clouds_2048.png',
+      ];
 
-      // 2. Download Earth clouds texture
-      try {
+      final earthImg = await _downloadImage(earthUrls);
+      
+      if (mounted) {
         setState(() {
-          _loadingStatus = 'MAQUEANDO CAMADA DE NUVENS...';
+          _loadingStatus = 'MAPEANDO CAMADA DE NUVENS...';
         });
-        final response2 = await http.get(Uri.parse(
-          'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_clouds_1024.png'
-        )).timeout(const Duration(seconds: 10));
-
-        if (response2.statusCode == 200) {
-          final codec = await ui.instantiateImageCodec(response2.bodyBytes);
-          final frame = await codec.getNextFrame();
-          _cloudsImage = frame.image;
-        }
-      } catch (_) {
-        // Fallback clouds if primary fails
       }
 
+      final cloudsImg = await _downloadImage(cloudsUrls);
+
+      if (mounted) {
+        setState(() {
+          _earthImage = earthImg;
+          _cloudsImage = cloudsImg;
+          _isLoadingTexture = false;
+        });
+      }
+    } catch (_) {
       if (mounted) {
         setState(() {
           _isLoadingTexture = false;
         });
-      }
-    } catch (e) {
-      // Fallback: download Land Ocean image
-      try {
-        final response = await http.get(Uri.parse(
-          'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/land_ocean_ice_cloud_2048.jpg'
-        )).timeout(const Duration(seconds: 12));
-
-        final codec = await ui.instantiateImageCodec(response.bodyBytes);
-        final frame = await codec.getNextFrame();
-        if (mounted) {
-          setState(() {
-            _earthImage = frame.image;
-            _isLoadingTexture = false;
-          });
-        }
-      } catch (_) {
-        if (mounted) {
-          setState(() {
-            _isLoadingTexture = false;
-          });
-        }
       }
     }
   }
@@ -885,9 +881,9 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
                                             },
                                         ),
                                       ],
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
+                                     ),
+                                     const SizedBox(height: 1),
+                                     Text(
                                       _selectedGeoPoint!['project'],
                                       style: TextStyle(
                                         fontSize: 11,
@@ -1088,82 +1084,82 @@ class _TexturedGlobePainter extends CustomPainter {
       ..style = PaintingStyle.fill;
     canvas.drawCircle(Offset(cx, cy), radius, glowOverlay);
 
-    if (earthImage != null) {
-      const int latSegments = 18;
-      const int lonSegments = 24;
+    const int latSegments = 18;
+    const int lonSegments = 24;
 
-      final int vertexCount = (latSegments + 1) * (lonSegments + 1);
-      final List<Offset> positions = List.filled(vertexCount, Offset.zero);
-      final List<Offset> uvs = List.filled(vertexCount, Offset.zero);
-      final List<double> zs = List.filled(vertexCount, 0.0);
+    final int vertexCount = (latSegments + 1) * (lonSegments + 1);
+    final List<Offset> positions = List.filled(vertexCount, Offset.zero);
+    final List<Offset> uvs = List.filled(vertexCount, Offset.zero);
+    final List<double> zs = List.filled(vertexCount, 0.0);
 
-      final double imgW = earthImage!.width.toDouble();
-      final double imgH = earthImage!.height.toDouble();
+    final double imgW = earthImage?.width.toDouble() ?? 1024.0;
+    final double imgH = earthImage?.height.toDouble() ?? 512.0;
 
-      for (int lat = 0; lat <= latSegments; lat++) {
-        final double theta = (lat / latSegments) * math.pi;
-        final double sinTheta = math.sin(theta);
-        final double cosTheta = math.cos(theta);
+    for (int lat = 0; lat <= latSegments; lat++) {
+      final double theta = (lat / latSegments) * math.pi;
+      final double sinTheta = math.sin(theta);
+      final double cosTheta = math.cos(theta);
 
-        for (int lon = 0; lon <= lonSegments; lon++) {
-          final double phi = (lon / lonSegments) * 2 * math.pi;
-          final double sinPhi = math.sin(phi);
-          final double cosPhi = math.cos(phi);
+      for (int lon = 0; lon <= lonSegments; lon++) {
+        final double phi = (lon / lonSegments) * 2 * math.pi;
+        final double sinPhi = math.sin(phi);
+        final double cosPhi = math.cos(phi);
 
-          final double x = radius * sinTheta * sinPhi;
-          final double y = -radius * cosTheta;
-          final double z = radius * sinTheta * cosPhi;
+        final double x = radius * sinTheta * sinPhi;
+        final double y = -radius * cosTheta;
+        final double z = radius * sinTheta * cosPhi;
 
-          final double rx = x * math.cos(rotY) + z * math.sin(rotY);
-          final double rz = -x * math.sin(rotY) + z * math.cos(rotY);
+        final double rx = x * math.cos(rotY) + z * math.sin(rotY);
+        final double rz = -x * math.sin(rotY) + z * math.cos(rotY);
 
-          final double finalX = rx;
-          final double finalY = y * math.cos(rotX) - rz * math.sin(rotX);
-          final double finalZ = y * math.sin(rotX) + rz * math.cos(rotX);
+        final double finalX = rx;
+        final double finalY = y * math.cos(rotX) - rz * math.sin(rotX);
+        final double finalZ = y * math.sin(rotX) + rz * math.cos(rotX);
 
-          final int idx = lat * (lonSegments + 1) + lon;
-          positions[idx] = Offset(cx + finalX, cy + finalY);
-          zs[idx] = finalZ;
+        final int idx = lat * (lonSegments + 1) + lon;
+        positions[idx] = Offset(cx + finalX, cy + finalY);
+        zs[idx] = finalZ;
 
-          final double u = (lon / lonSegments) * imgW;
-          final double v = (lat / latSegments) * imgH;
-          uvs[idx] = Offset(u, v);
+        final double u = (lon / lonSegments) * imgW;
+        final double v = (lat / latSegments) * imgH;
+        uvs[idx] = Offset(u, v);
+      }
+    }
+
+    final List<int> indices = [];
+    for (int lat = 0; lat < latSegments; lat++) {
+      for (int lon = 0; lon < lonSegments; lon++) {
+        final int p00 = lat * (lonSegments + 1) + lon;
+        final int p01 = p00 + 1;
+        final int p10 = p00 + (lonSegments + 1);
+        final int p11 = p10 + 1;
+
+        final double zAvg1 = (zs[p00] + zs[p10] + zs[p01]) / 3.0;
+        if (zAvg1 > -radius * 0.1) {
+          indices.addAll([p00, p10, p01]);
+        }
+
+        final double zAvg2 = (zs[p01] + zs[p10] + zs[p11]) / 3.0;
+        if (zAvg2 > -radius * 0.1) {
+          indices.addAll([p01, p10, p11]);
         }
       }
+    }
 
-      final List<int> indices = [];
-      for (int lat = 0; lat < latSegments; lat++) {
-        for (int lon = 0; lon < lonSegments; lon++) {
-          final int p00 = lat * (lonSegments + 1) + lon;
-          final int p01 = p00 + 1;
-          final int p10 = p00 + (lonSegments + 1);
-          final int p11 = p10 + 1;
+    final bool showEarth = filter != 'Vetor (3D)';
+    final bool showClouds = filter == 'Clima' || filter == 'Todos' || filter == 'Wikipédia';
+    final bool showGrid = filter == 'Vetor (3D)' || filter == 'Todos';
 
-          final double zAvg1 = (zs[p00] + zs[p10] + zs[p01]) / 3.0;
-          if (zAvg1 > -radius * 0.1) {
-            indices.addAll([p00, p10, p01]);
-          }
+    if (indices.isNotEmpty) {
+      final vertices = ui.Vertices(
+        ui.VertexMode.triangles,
+        positions,
+        textureCoordinates: uvs,
+        indices: indices,
+      );
 
-          final double zAvg2 = (zs[p01] + zs[p10] + zs[p11]) / 3.0;
-          if (zAvg2 > -radius * 0.1) {
-            indices.addAll([p01, p10, p11]);
-          }
-        }
-      }
-
-      if (indices.isNotEmpty) {
-        final vertices = ui.Vertices(
-          ui.VertexMode.triangles,
-          positions,
-          textureCoordinates: uvs,
-          indices: indices,
-        );
-
-        final bool showEarth = filter != 'Vetor (3D)';
-        final bool showClouds = filter == 'Clima' || filter == 'Todos' || filter == 'Wikipédia';
-        final bool showGrid = filter == 'Vetor (3D)' || filter == 'Todos';
-
-        if (showEarth && earthImage != null) {
+      if (showEarth) {
+        if (earthImage != null) {
           final paint = Paint()
             ..shader = ImageShader(
               earthImage!,
@@ -1182,60 +1178,62 @@ class _TexturedGlobePainter extends CustomPainter {
           canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: radius)));
           canvas.drawVertices(vertices, BlendMode.srcOver, paint);
           canvas.restore();
-        }
-
-        if (showClouds && cloudsImage != null) {
-          final cloudsPaint = Paint()
-            ..shader = ImageShader(
-              cloudsImage!,
-              TileMode.clamp,
-              TileMode.clamp,
-              Float64List.fromList([
-                1, 0, 0, 0,
-                0, 1, 0, 0,
-                0, 0, 1, 0,
-                0, 0, 0, 1
-              ]),
-            )
-            ..filterQuality = FilterQuality.medium;
-
+        } else {
+          final fallbackPaint = Paint()
+            ..color = themeColor.withOpacity(0.08)
+            ..style = PaintingStyle.fill;
           canvas.save();
           canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: radius)));
-          canvas.drawVertices(vertices, BlendMode.srcOver, cloudsPaint);
-          canvas.restore();
-        }
-
-        if (showGrid) {
-          final gridPaint = Paint()
-            ..color = themeColor.withOpacity(0.35)
-            ..strokeWidth = 0.8
-            ..style = PaintingStyle.stroke;
-
-          canvas.save();
-          canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: radius)));
-          for (int lat = 0; lat < latSegments; lat++) {
-            for (int lon = 0; lon < lonSegments; lon++) {
-              final int p00 = lat * (lonSegments + 1) + lon;
-              final int p01 = p00 + 1;
-              final int p10 = p00 + (lonSegments + 1);
-
-              if (zs[p00] > 0 && zs[p01] > 0) {
-                canvas.drawLine(positions[p00], positions[p01], gridPaint);
-              }
-              if (zs[p00] > 0 && zs[p10] > 0) {
-                canvas.drawLine(positions[p00], positions[p10], gridPaint);
-              }
-            }
-          }
+          canvas.drawCircle(Offset(cx, cy), radius, fallbackPaint);
           canvas.restore();
         }
       }
-    } else {
-      final gridPaint = Paint()
-        ..color = themeColor.withOpacity(0.1)
-        ..strokeWidth = 1.0
-        ..style = PaintingStyle.stroke;
-      canvas.drawCircle(Offset(cx, cy), radius, gridPaint);
+
+      if (showClouds && cloudsImage != null) {
+        final cloudsPaint = Paint()
+          ..shader = ImageShader(
+            cloudsImage!,
+            TileMode.clamp,
+            TileMode.clamp,
+            Float64List.fromList([
+              1, 0, 0, 0,
+              0, 1, 0, 0,
+              0, 0, 1, 0,
+              0, 0, 0, 1
+            ]),
+          )
+          ..filterQuality = FilterQuality.medium;
+
+        canvas.save();
+        canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: radius)));
+        canvas.drawVertices(vertices, BlendMode.srcOver, cloudsPaint);
+        canvas.restore();
+      }
+
+      if (showGrid || earthImage == null) {
+        final gridPaint = Paint()
+          ..color = themeColor.withOpacity(earthImage == null ? 0.15 : 0.35)
+          ..strokeWidth = 0.8
+          ..style = PaintingStyle.stroke;
+
+        canvas.save();
+        canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: radius)));
+        for (int lat = 0; lat < latSegments; lat++) {
+          for (int lon = 0; lon < lonSegments; lon++) {
+            final int p00 = lat * (lonSegments + 1) + lon;
+            final int p01 = p00 + 1;
+            final int p10 = p00 + (lonSegments + 1);
+
+            if (zs[p00] > 0 && zs[p01] > 0) {
+              canvas.drawLine(positions[p00], positions[p01], gridPaint);
+            }
+            if (zs[p00] > 0 && zs[p10] > 0) {
+              canvas.drawLine(positions[p00], positions[p10], gridPaint);
+            }
+          }
+        }
+        canvas.restore();
+      }
     }
 
     // 4. Draw Geolocation Markers (iOS clean circular targets)
