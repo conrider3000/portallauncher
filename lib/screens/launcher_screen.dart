@@ -412,17 +412,25 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                             duration: const Duration(milliseconds: 200),
                             child: Padding(
                               padding: const EdgeInsets.only(top: 4.0), // Center align vertically with the sun/moon button
-                              child: Text(
-                                _currentPageIndex == 0
-                                    ? 'Home'
-                                    : _currentPageIndex == 1
-                                        ? 'Memória'
-                                        : 'Aplicativos',
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: -0.5,
-                                  color: isDark ? const Color(0xFFFAFAFA) : Colors.black,
+                              child: GestureDetector(
+                                onTap: () {
+                                  if (_currentPageIndex == 0) {
+                                    VirtualTopography.toggleRotationTrigger.value = 
+                                        !VirtualTopography.toggleRotationTrigger.value;
+                                  }
+                                },
+                                child: Text(
+                                  _currentPageIndex == 0
+                                      ? 'Home'
+                                      : _currentPageIndex == 1
+                                          ? 'Memória'
+                                          : 'Aplicativos',
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.5,
+                                    color: isDark ? const Color(0xFFFAFAFA) : Colors.black,
+                                  ),
                                 ),
                               ),
                             ),

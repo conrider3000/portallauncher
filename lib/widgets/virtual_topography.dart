@@ -15,6 +15,7 @@ class VirtualTopography extends StatefulWidget {
   static final ValueNotifier<String> mapSearchQueryNotifier = ValueNotifier('');
   static final ValueNotifier<String> earthFilterNotifier = ValueNotifier('Todos');
   static final ValueNotifier<String?> directSearchTrigger = ValueNotifier<String?>(null);
+  static final ValueNotifier<bool> toggleRotationTrigger = ValueNotifier<bool>(true);
 
   @override
   State<VirtualTopography> createState() => _VirtualTopographyState();
@@ -113,6 +114,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     VirtualTopography.mapSearchQueryNotifier.addListener(_onMapSearchQueryChanged);
     VirtualTopography.earthFilterNotifier.addListener(_onFilterChanged);
     VirtualTopography.directSearchTrigger.addListener(_onDirectSearchTriggered);
+    VirtualTopography.toggleRotationTrigger.addListener(_onToggleRotationChanged);
   }
 
   @override
@@ -120,6 +122,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     VirtualTopography.mapSearchQueryNotifier.removeListener(_onMapSearchQueryChanged);
     VirtualTopography.earthFilterNotifier.removeListener(_onFilterChanged);
     VirtualTopography.directSearchTrigger.removeListener(_onDirectSearchTriggered);
+    VirtualTopography.toggleRotationTrigger.removeListener(_onToggleRotationChanged);
     _animationController.dispose();
     _popupTimer?.cancel();
     super.dispose();
@@ -128,6 +131,18 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
   void _onFilterChanged() {
     if (mounted) {
       setState(() {});
+    }
+  }
+
+  void _onToggleRotationChanged() {
+    if (VirtualTopography.toggleRotationTrigger.value) {
+      if (_selectedGeoPoint == null && !_animationController.isAnimating) {
+        _animationController.repeat();
+      }
+    } else {
+      if (_animationController.isAnimating) {
+        _animationController.stop();
+      }
     }
   }
 
@@ -672,14 +687,18 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
         if (mounted) {
           setState(() {
             _selectedGeoPoint = null;
-            _animationController.repeat();
+            if (VirtualTopography.toggleRotationTrigger.value) {
+              _animationController.repeat();
+            }
           });
         }
       });
     } else {
       setState(() {
         _selectedGeoPoint = null;
-        _animationController.repeat();
+        if (VirtualTopography.toggleRotationTrigger.value) {
+          _animationController.repeat();
+        }
       });
     }
   }
@@ -856,12 +875,14 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
                                           icon: const Icon(Icons.close_rounded, size: 18),
                                           padding: EdgeInsets.zero,
                                           constraints: const BoxConstraints(),
-                                           onPressed: () {
-                                             setState(() {
-                                               _selectedGeoPoint = null;
-                                               _animationController.repeat();
-                                             });
-                                           },
+                                            onPressed: () {
+                                              setState(() {
+                                                _selectedGeoPoint = null;
+                                                if (VirtualTopography.toggleRotationTrigger.value) {
+                                                  _animationController.repeat();
+                                                }
+                                              });
+                                            },
                                         ),
                                       ],
                                     ),
