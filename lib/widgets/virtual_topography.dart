@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/launcher_service.dart';
 
 class VirtualTopography extends StatefulWidget {
   const VirtualTopography({super.key});
@@ -171,9 +172,12 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
         final data = jsonDecode(response.body);
         final searchList = data['query']?['search'] as List?;
         if (searchList != null && searchList.isNotEmpty) {
-          final firstItem = searchList.first;
-          final String title = firstItem['title'];
-          await _fetchWikiPageDetails(title);
+          setState(() {
+            _wikiSearchResults = searchList.map((item) => {
+              'title': item['title'] as String,
+              'snippet': (item['snippet'] as String? ?? '').replaceAll(RegExp(r'<[^>]*>'), ''), // strip HTML tags
+            }).toList();
+          });
         } else {
           _showSnackBar('Nenhum local ou marco encontrado para "$query"');
         }
@@ -915,22 +919,57 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
                                       maxLines: 3,
                                       overflow: TextOverflow.ellipsis,
                                     ),
+                                    if (_selectedGeoPoint!['imageUrl'] == null) ...[
+                                      const SizedBox(height: 6),
+                                      InkWell(
+                                        onTap: () {
+                                          final titleEsc = Uri.encodeComponent(_selectedGeoPoint!['name'] ?? '');
+                                          LauncherService.openUrl('https://commons.wikimedia.org/wiki/Special:UploadWizard?uselang=pt&wpDestFile=$titleEsc.jpg');
+                                        },
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.add_a_photo_rounded, size: 11, color: theme.colorScheme.primary),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              'Enviar imagem para a Wikipédia',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.bold,
+                                                color: theme.colorScheme.primary,
+                                                decoration: TextDecoration.underline,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),
-                              if (_selectedGeoPoint!['imageUrl'] != null) ...[
-                                  const SizedBox(width: 12),
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(14),
-                                    child: Image.network(
-                                      _selectedGeoPoint!['imageUrl'],
-                                      width: 76,
-                                      height: 76,
-                                      fit: BoxFit.cover,
-                                      errorBuilder: (context, error, stackTrace) => const SizedBox(),
-                                    ),
-                                  ),
-                              ],
+                              const SizedBox(width: 12),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(14),
+                                child: _selectedGeoPoint!['imageUrl'] != null
+                                    ? Image.network(
+                                        _selectedGeoPoint!['imageUrl'],
+                                        width: 76,
+                                        height: 76,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (context, error, stackTrace) => Container(
+                                          width: 76,
+                                          height: 76,
+                                          color: (isDark ? Colors.white : Colors.black).withOpacity(0.06),
+                                          child: Icon(Icons.image_not_supported_rounded, size: 24, color: theme.colorScheme.onSurface.withOpacity(0.3)),
+                                        ),
+                                      )
+                                    : Container(
+                                        width: 76,
+                                        height: 76,
+                                        color: (isDark ? Colors.white : Colors.black).withOpacity(0.06),
+                                        child: Icon(Icons.image_not_supported_rounded, size: 24, color: theme.colorScheme.onSurface.withOpacity(0.3)),
+                                      ),
+                              ),
                             ],
                           ),
                         ],
@@ -1103,11 +1142,14 @@ class _TexturedGlobePainter extends CustomPainter {
 
     final int vertexCount = (latSegments + 1) * (lonSegments + 1);
     final List<Offset> positions = List.filled(vertexCount, Offset.zero);
-    final List<Offset> uvs = List.filled(vertexCount, Offset.zero);
+    final List<Offset> uvsEarth = List.filled(vertexCount, Offset.zero);
+    final List<Offset> uvsClouds = List.filled(vertexCount, Offset.zero);
     final List<double> zs = List.filled(vertexCount, 0.0);
 
-    final double imgW = earthImage?.width.toDouble() ?? 1024.0;
-    final double imgH = earthImage?.height.toDouble() ?? 512.0;
+    final double earthW = earthImage?.width.toDouble() ?? 1024.0;
+    final double earthH = earthImage?.height.toDouble() ?? 512.0;
+    final double cloudsW = cloudsImage?.width.toDouble() ?? 1024.0;
+    final double cloudsH = cloudsImage?.height.toDouble() ?? 512.0;
 
     for (int lat = 0; lat <= latSegments; lat++) {
       final double theta = (lat / latSegments) * math.pi;
@@ -1134,9 +1176,10 @@ class _TexturedGlobePainter extends CustomPainter {
         positions[idx] = Offset(cx + finalX, cy + finalY);
         zs[idx] = finalZ;
 
-        final double u = (lon / lonSegments) * imgW;
-        final double v = (lat / latSegments) * imgH;
-        uvs[idx] = Offset(u, v);
+        final double uNorm = lon / lonSegments;
+        final double vNorm = lat / latSegments;
+        uvsEarth[idx] = Offset(uNorm * earthW, vNorm * earthH);
+        uvsClouds[idx] = Offset(uNorm * cloudsW, vNorm * cloudsH);
       }
     }
 
@@ -1165,15 +1208,14 @@ class _TexturedGlobePainter extends CustomPainter {
     final bool showGrid = filter == 'Vetor (3D)';
 
     if (indices.isNotEmpty) {
-      final vertices = ui.Vertices(
-        ui.VertexMode.triangles,
-        positions,
-        textureCoordinates: uvs,
-        indices: indices,
-      );
-
       if (showEarth) {
         if (earthImage != null) {
+          final earthVertices = ui.Vertices(
+            ui.VertexMode.triangles,
+            positions,
+            textureCoordinates: uvsEarth,
+            indices: indices,
+          );
           final paint = Paint()
             ..shader = ImageShader(
               earthImage!,
@@ -1190,7 +1232,7 @@ class _TexturedGlobePainter extends CustomPainter {
 
           canvas.save();
           canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: radius)));
-          canvas.drawVertices(vertices, BlendMode.srcOver, paint);
+          canvas.drawVertices(earthVertices, BlendMode.srcOver, paint);
           canvas.restore();
         } else {
           final fallbackPaint = Paint()
@@ -1204,6 +1246,12 @@ class _TexturedGlobePainter extends CustomPainter {
       }
 
       if (showClouds && cloudsImage != null) {
+        final cloudsVertices = ui.Vertices(
+          ui.VertexMode.triangles,
+          positions,
+          textureCoordinates: uvsClouds,
+          indices: indices,
+        );
         final cloudsPaint = Paint()
           ..shader = ImageShader(
             cloudsImage!,
@@ -1221,7 +1269,7 @@ class _TexturedGlobePainter extends CustomPainter {
 
         canvas.save();
         canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: radius)));
-        canvas.drawVertices(vertices, BlendMode.screen, cloudsPaint);
+        canvas.drawVertices(cloudsVertices, BlendMode.srcOver, cloudsPaint);
         canvas.restore();
       }
 

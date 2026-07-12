@@ -76,6 +76,31 @@ class MainActivity : FlutterActivity() {
                 "openClockApp" -> {
                     result.success(openClockApp())
                 }
+                "openUrl" -> {
+                    val url = call.argument<String>("url")
+                    if (url != null) {
+                        openUrl(url)
+                        result.success(true)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "URL is null", null)
+                    }
+                }
+                "toggleWifi" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    result.success(setWifiEnabled(enabled))
+                }
+                "toggleBluetooth" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    result.success(setBluetoothEnabled(enabled))
+                }
+                "toggleCellular" -> {
+                    openCellularSettings()
+                    result.success(true)
+                }
+                "openNfcSettings" -> {
+                    openNfcSettings()
+                    result.success(true)
+                }
                 else -> {
                     result.notImplemented()
                 }
@@ -402,5 +427,84 @@ class MainActivity : FlutterActivity() {
 
     private fun dismissNotification(key: String) {
         MyNotificationListenerService.instance?.cancelNotification(key)
+    }
+
+    private fun openUrl(url: String) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url))
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        } catch (e: Exception) {}
+    }
+
+    private fun setWifiEnabled(enabled: Boolean): Boolean {
+        val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager ?: return false
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val intent = Intent(Settings.Panel.ACTION_WIFI)
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+                true
+            } else {
+                @Suppress("DEPRECATION")
+                wifiManager.isWifiEnabled = enabled
+                true
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun setBluetoothEnabled(enabled: Boolean): Boolean {
+        val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter() ?: return false
+        return try {
+            if (enabled) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(intent)
+                    true
+                } else {
+                    @Suppress("DEPRECATION")
+                    bluetoothAdapter.enable()
+                    true
+                }
+            } else {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    val intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(intent)
+                    true
+                } else {
+                    @Suppress("DEPRECATION")
+                    bluetoothAdapter.disable()
+                    true
+                }
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun openCellularSettings() {
+        try {
+            val intent = Intent(Settings.ACTION_WIRELESS_SETTINGS)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        } catch (e: Exception) {}
+    }
+
+    private fun openNfcSettings() {
+        try {
+            val intent = Intent(Settings.ACTION_NFC_SETTINGS)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        } catch (e: Exception) {
+            try {
+                val intent = Intent(Settings.ACTION_WIRELESS_SETTINGS)
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+            } catch (ex: Exception) {}
+        }
     }
 }

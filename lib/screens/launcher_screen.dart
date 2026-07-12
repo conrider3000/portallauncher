@@ -40,6 +40,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
   bool _loadingHardware = true;
   List<AppInfo> _mostUsedApps = [];
   final Set<String> _expandedSensors = {};
+  bool _fmRadioSimEnabled = false;
 
   final Map<String, String> _sensorDescriptions = {
     'accelerometer': 'Mede aceleração linear em 3 eixos. Usado para detectar orientação da tela e contagem de passos.',
@@ -314,7 +315,19 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                   children: [
                                     _buildSectionTitle('RÁDIOS & COMUNICAÇÃO', theme),
                                     _buildWifiTile(theme, isDark),
-                                    _buildRadioTile('Bluetooth', _hardwareInfo['bluetooth'] ?? {}, Icons.bluetooth_rounded, theme, isDark),
+                                    _buildRadioTile(
+                                      'Bluetooth', 
+                                      _hardwareInfo['bluetooth'] ?? {}, 
+                                      Icons.bluetooth_rounded, 
+                                      theme, 
+                                      isDark,
+                                      onToggle: (val) async {
+                                        await LauncherService.toggleBluetooth(val);
+                                        Future.delayed(const Duration(milliseconds: 1200), () {
+                                          _loadHardwareInfo();
+                                        });
+                                      },
+                                    ),
                                     _buildRadioTile(
                                       'Antena 4G / Celular', 
                                       {
@@ -325,25 +338,54 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                       }, 
                                       Icons.signal_cellular_alt_rounded, 
                                       theme, 
-                                      isDark
+                                      isDark,
+                                      onToggle: (val) async {
+                                        await LauncherService.toggleCellular();
+                                      },
                                     ),
                                     _buildRadioTile(
                                       'Receptor de Rádio FM', 
                                       {
                                         'available': _hardwareInfo['radio']?['available'] == true,
-                                        'enabled': _hardwareInfo['radio']?['available'] == true,
-                                        'state': 'FM/AM',
+                                        'enabled': _fmRadioSimEnabled,
+                                        'state': _fmRadioSimEnabled ? 'ATIVO' : 'DESATIVADO',
                                         'subtitle': _hardwareInfo['radio']?['state'] ?? 'Receptor de frequência analógica',
                                       }, 
                                       Icons.radio_rounded, 
                                       theme, 
-                                      isDark
+                                      isDark,
+                                      onToggle: (val) {
+                                        setState(() {
+                                          _fmRadioSimEnabled = val;
+                                        });
+                                      },
                                     ),
-                                    _buildRadioTile('NFC (Near Field)', _hardwareInfo['nfc'] ?? {}, Icons.nfc_rounded, theme, isDark),
-                                    _buildRadioTile('Infravermelho', _hardwareInfo['infrared'] ?? {}, Icons.settings_remote_rounded, theme, isDark),
-                                    
+                                    _buildRadioTile(
+                                      'NFC (Near Field)', 
+                                      _hardwareInfo['nfc'] ?? {}, 
+                                      Icons.nfc_rounded, 
+                                      theme, 
+                                      isDark,
+                                      onToggle: (val) async {
+                                        await LauncherService.openNfcSettings();
+                                      },
+                                    ),
+                                    _buildRadioTile(
+                                      'Infravermelho', 
+                                      _hardwareInfo['infrared'] ?? {}, 
+                                      Icons.settings_remote_rounded, 
+                                      theme, 
+                                      isDark,
+                                      onToggle: (val) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                            content: Text('Hardware Infravermelho controlado automaticamente pelo sistema.'),
+                                            duration: Duration(seconds: 2),
+                                          ),
+                                        );
+                                      },
+                                    ),
                                     const SizedBox(height: 16),
-                                    
                                     _buildSectionTitle('SENSORES DE HARDWARE', theme),
                                     ..._buildPhysicalSensorsList(theme, isDark),
                                   ],
@@ -1413,7 +1455,7 @@ Widget _buildSidebarItem(
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: (isDark ? Colors.white : Colors.black).withOpacity(0.04),
         borderRadius: BorderRadius.circular(16),
@@ -1441,31 +1483,36 @@ Widget _buildSidebarItem(
               ],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: (enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface).withOpacity(0.08),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              enabled ? 'ATIVO' : 'DESATIVADO',
-              style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface.withOpacity(0.5)),
-            ),
+          Switch(
+            value: enabled,
+            activeColor: theme.colorScheme.primary,
+            onChanged: (val) async {
+              await LauncherService.toggleWifi(val);
+              Future.delayed(const Duration(milliseconds: 1200), () {
+                _loadHardwareInfo();
+              });
+            },
           ),
         ],
       ),
     );
   }
 
-  Widget _buildRadioTile(String title, Map<dynamic, dynamic> data, IconData icon, ThemeData theme, bool isDark) {
+  Widget _buildRadioTile(
+    String title, 
+    Map<dynamic, dynamic> data, 
+    IconData icon, 
+    ThemeData theme, 
+    bool isDark,
+    {required ValueChanged<bool> onToggle}
+  ) {
     final bool available = data['available'] != false;
     final bool enabled = data['enabled'] == true;
-    final String state = data['state'] ?? 'INATIVO';
     final String subtitle = data['subtitle'] ?? (available ? (enabled ? 'Ativo e pronto' : 'Disponível, inativo') : 'Não integrado ao hardware');
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: (isDark ? Colors.white : Colors.black).withOpacity(0.04),
         borderRadius: BorderRadius.circular(16),
@@ -1493,17 +1540,12 @@ Widget _buildSidebarItem(
               ],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-            decoration: BoxDecoration(
-              color: (enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface).withOpacity(0.08),
-              borderRadius: BorderRadius.circular(8),
+          if (available)
+            Switch(
+              value: enabled,
+              activeColor: theme.colorScheme.primary,
+              onChanged: onToggle,
             ),
-            child: Text(
-              state,
-              style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface.withOpacity(0.5)),
-            ),
-          ),
         ],
       ),
     );
@@ -1627,18 +1669,21 @@ Widget _buildSidebarItem(
                       ),
                     ),
                     const SizedBox(width: 6),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primary.withOpacity(0.05),
-                        borderRadius: BorderRadius.circular(5),
-                      ),
-                      child: Text(
-                        type,
-                        style: TextStyle(fontSize: 6.5, fontWeight: FontWeight.bold, color: theme.colorScheme.primary.withOpacity(0.8)),
+                    Flexible(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primary.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        child: Text(
+                          type,
+                          style: TextStyle(fontSize: 6.5, fontWeight: FontWeight.bold, color: theme.colorScheme.primary.withOpacity(0.8)),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ),
-                    const SizedBox(width: 6),
                     IconButton(
                       icon: Icon(
                         isExpanded ? Icons.info_rounded : Icons.info_outline_rounded,

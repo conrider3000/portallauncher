@@ -82,4 +82,39 @@ class LauncherService {
       return false;
     }
   }
+
+  /// Opens a web page URL in the browser.
+  static Future<void> openUrl(String url) async {
+    try {
+      await _channel.invokeMethod('openUrl', {'url': url});
+    } catch (_) {}
+  }
+
+  /// Toggles Wi-Fi status.
+  static Future<void> toggleWifi(bool enabled) async {
+    try {
+      await _channel.invokeMethod('toggleWifi', {'enabled': enabled});
+    } catch (_) {}
+  }
+
+  /// Toggles Bluetooth status.
+  static Future<void> toggleBluetooth(bool enabled) async {
+    try {
+      await _channel.invokeMethod('toggleBluetooth', {'enabled': enabled});
+    } catch (_) {}
+  }
+
+  /// Opens system mobile network settings panel.
+  static Future<void> toggleCellular() async {
+    try {
+      await _channel.invokeMethod('toggleCellular');
+    } catch (_) {}
+  }
+
+  /// Opens system NFC settings.
+  static Future<void> openNfcSettings() async {
+    try {
+      await _channel.invokeMethod('openNfcSettings');
+    } catch (_) {}
+  }
 }
