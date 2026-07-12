@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/platform_helper.dart';
 
 class AppInfo {
@@ -77,8 +79,19 @@ class AppsService {
     }
   }
 
+  static Future<void> _incrementLaunchCount(String packageName) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final countsJson = prefs.getString('apps_launch_counts') ?? '{}';
+      final Map<String, dynamic> counts = Map<String, dynamic>.from(jsonDecode(countsJson));
+      counts[packageName] = (counts[packageName] as int? ?? 0) + 1;
+      await prefs.setString('apps_launch_counts', jsonEncode(counts));
+    } catch (_) {}
+  }
+
   /// Launches specified app using packageName and className.
   static Future<bool> launchApp(String packageName, String className) async {
+    _incrementLaunchCount(packageName);
     if (!isAndroidNative) {
       print("Simulando lançamento do app: $packageName");
       return true;
@@ -92,6 +105,30 @@ class AppsService {
       return success ?? false;
     } on PlatformException catch (_) {
       return false;
+    }
+  }
+
+  /// Returns a list of the most used apps sorted by launch counts.
+  static Future<List<AppInfo>> getMostUsedApps(List<AppInfo> allApps) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final countsJson = prefs.getString('apps_launch_counts') ?? '{}';
+      final Map<String, dynamic> counts = Map<String, dynamic>.from(jsonDecode(countsJson));
+      
+      final sorted = List<AppInfo>.from(allApps);
+      sorted.sort((a, b) {
+        final countA = counts[a.packageName] as int? ?? 0;
+        final countB = counts[b.packageName] as int? ?? 0;
+        return countB.compareTo(countA);
+      });
+      
+      final launched = sorted.where((app) => (counts[app.packageName] as int? ?? 0) > 0).toList();
+      if (launched.isEmpty) {
+        return allApps.take(8).toList();
+      }
+      return launched.take(8).toList();
+    } catch (_) {
+      return allApps.take(8).toList();
     }
   }
 }

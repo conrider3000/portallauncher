@@ -6,8 +6,58 @@ import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/theme_manager.dart';
+import '../services/launcher_service.dart';
 
 class MultiCalendarHelper {
+  static String getMayanKinDate(DateTime date) {
+    final anchor = DateTime.utc(2020, 1, 1);
+    final target = DateTime.utc(date.year, date.month, date.day);
+    
+    int days = 0;
+    if (target.isAfter(anchor)) {
+      DateTime current = anchor;
+      while (current.isBefore(target)) {
+        if (!(current.month == 2 && current.day == 29)) {
+          days++;
+        }
+        current = current.add(const Duration(days: 1));
+      }
+    } else {
+      DateTime current = anchor;
+      while (current.isAfter(target)) {
+        current = current.subtract(const Duration(days: 1));
+        if (!(current.month == 2 && current.day == 29)) {
+          days--;
+        }
+      }
+    }
+    
+    int kin = (178 + days) % 260;
+    if (kin <= 0) kin += 260;
+    
+    final tones = [
+      "Magnético (1)", "Lunar (2)", "Elétrico (3)", "Autoexistente (4)",
+      "Harmônico (5)", "Rítmico (6)", "Ressonante (7)", "Galáctico (8)",
+      "Solar (9)", "Planetário (10)", "Espectral (11)", "Cristal (12)", "Cósmico (13)"
+    ];
+    
+    final seals = [
+      "Dragão Vermelho (Imix)", "Vento Branco (Ik)", "Noite Azul (Akbal)", "Semente Amarela (Kan)",
+      "Serpente Vermelha (Chicchan)", "Enlaçador de Mundos Branco (Cimi)", "Mão Azul (Manik)", "Estrela Amarela (Lamat)",
+      "Lua Vermelha (Muluc)", "Cachorro Branco (Oc)", "Macaco Azul (Chuen)", "Humano Amarelo (Eb)",
+      "Caminhante do Céu Vermelho (Ben)", "Mago Branco (Ix)", "Águia Azul (Men)", "Guerreiro Amarelo (Cib)",
+      "Terra Vermelha (Caban)", "Espelho Branco (Etznab)", "Tormenta Azul (Cauac)", "Sol Amarelo (Ahau)"
+    ];
+    
+    int toneIndex = (kin - 1) % 13;
+    int sealIndex = (kin - 1) % 20;
+    
+    final toneName = tones[toneIndex];
+    final sealName = seals[sealIndex];
+    
+    return "Kin $kin: $sealName $toneName";
+  }
+
   static int getJulianDay(DateTime date) {
     int y = date.year;
     int m = date.month;
@@ -362,7 +412,7 @@ class _ContextHeaderState extends State<ContextHeader> {
 
   void _cycleCalendar() {
     setState(() {
-      _calendarSystemIndex = (_calendarSystemIndex + 1) % 4;
+      _calendarSystemIndex = (_calendarSystemIndex + 1) % 5;
     });
   }
 
@@ -374,6 +424,8 @@ class _ContextHeaderState extends State<ContextHeader> {
         return MultiCalendarHelper.getHebrewDate(_currentTime);
       case 3:
         return MultiCalendarHelper.getHijriDate(_currentTime);
+      case 4:
+        return MultiCalendarHelper.getMayanKinDate(_currentTime);
       case 0:
       default:
         return MultiCalendarHelper.getGregorianDate(_currentTime);
@@ -489,40 +541,47 @@ class _ContextHeaderState extends State<ContextHeader> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                              // Line 1: Real-time clock with seconds + timezone
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.access_time_rounded,
-                                  size: 14,
-                                  color: theme.colorScheme.primary,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  "${_currentTime.hour.toString().padLeft(2, '0')}:${_currentTime.minute.toString().padLeft(2, '0')}:${_currentTime.second.toString().padLeft(2, '0')}",
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: theme.colorScheme.primary.withOpacity(0.12),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Text(
-                                    _getTimezoneLabel(),
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w700,
-                                      color: theme.colorScheme.primary,
-                                      letterSpacing: 0.3,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
+                             InkWell(
+                               onTap: () => LauncherService.openClockApp(),
+                               borderRadius: BorderRadius.circular(8),
+                               child: Padding(
+                                 padding: const EdgeInsets.symmetric(vertical: 2.0, horizontal: 4.0),
+                                 child: Row(
+                                   children: [
+                                     Icon(
+                                       Icons.access_time_rounded,
+                                       size: 14,
+                                       color: theme.colorScheme.primary,
+                                     ),
+                                     const SizedBox(width: 8),
+                                     Text(
+                                       "${_currentTime.hour.toString().padLeft(2, '0')}:${_currentTime.minute.toString().padLeft(2, '0')}:${_currentTime.second.toString().padLeft(2, '0')}",
+                                       style: theme.textTheme.bodyMedium?.copyWith(
+                                         fontWeight: FontWeight.bold,
+                                         letterSpacing: 0.5,
+                                       ),
+                                     ),
+                                     const SizedBox(width: 8),
+                                     Container(
+                                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                       decoration: BoxDecoration(
+                                         color: theme.colorScheme.primary.withOpacity(0.12),
+                                         borderRadius: BorderRadius.circular(8),
+                                       ),
+                                       child: Text(
+                                         _getTimezoneLabel(),
+                                         style: TextStyle(
+                                           fontSize: 10,
+                                           fontWeight: FontWeight.w700,
+                                           color: theme.colorScheme.primary,
+                                           letterSpacing: 0.3,
+                                         ),
+                                       ),
+                                     ),
+                                   ],
+                                 ),
+                               ),
+                             ),
                             const SizedBox(height: 6),
 
                             // Line 2: Date with Calendar cycle support
@@ -637,7 +696,7 @@ class _CalendarSymbolPainter extends CustomPainter {
       path.lineTo(cx - 5.2, cy - 3);
       path.close();
       canvas.drawPath(path, paint);
-    } else {
+    } else if (index == 3) {
       // Hijri: Crescent Moon
       final moonPath = Path();
       moonPath.addArc(Rect.fromCircle(center: Offset(cx - 1.5, cy), radius: 5.5), -1.2, 2.4);
@@ -652,6 +711,16 @@ class _CalendarSymbolPainter extends CustomPainter {
         ..style = PaintingStyle.stroke;
       canvas.drawLine(Offset(cx + 3.5, cy - 2), Offset(cx + 3.5, cy + 1), starPaint);
       canvas.drawLine(Offset(cx + 2.0, cy - 0.5), Offset(cx + 5.0, cy - 0.5), starPaint);
+    } else {
+      // index == 4: Mayan Kin (Sun glyph)
+      canvas.drawCircle(Offset(cx, cy), 6, paint);
+      canvas.drawLine(Offset(cx - 3, cy), Offset(cx + 3, cy), paint);
+      canvas.drawLine(Offset(cx, cy - 3), Offset(cx, cy + 3), paint);
+      final dotPaint = Paint()..color = color..style = PaintingStyle.fill;
+      canvas.drawCircle(Offset(cx - 2.5, cy - 2.5), 0.8, dotPaint);
+      canvas.drawCircle(Offset(cx + 2.5, cy - 2.5), 0.8, dotPaint);
+      canvas.drawCircle(Offset(cx - 2.5, cy + 2.5), 0.8, dotPaint);
+      canvas.drawCircle(Offset(cx + 2.5, cy + 2.5), 0.8, dotPaint);
     }
   }
 

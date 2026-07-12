@@ -38,6 +38,47 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
 
   Map<String, dynamic> _hardwareInfo = {};
   bool _loadingHardware = true;
+  List<AppInfo> _mostUsedApps = [];
+  final Set<String> _expandedSensors = {};
+
+  final Map<String, String> _sensorDescriptions = {
+    'accelerometer': 'Mede aceleração linear em 3 eixos. Usado para detectar orientação da tela e contagem de passos.',
+    'gyroscope': 'Mede a velocidade de rotação angular do celular. Essencial para controle de giroscópio em jogos 3D.',
+    'magnetic': 'Mede a intensidade do campo magnético ambiente (bússola). Guia a orientação do GPS no mapa.',
+    'proximity': 'Detecta quando um objeto está próximo à tela. Desliga o visor em chamadas para evitar toques acidentais.',
+    'light': 'Mede o nível de iluminação ambiente. Controla o ajuste automático de brilho do display.',
+    'pressure': 'Mede a pressão atmosférica (barômetro). Auxilia na precisão da altitude do GPS e previsão local.',
+    'gravity': 'Determina o vetor de atração gravitacional do planeta em relação aos eixos do dispositivo.',
+    'linear': 'Mede a aceleração livre do aparelho excluindo a gravidade (aceleração linear pura).',
+    'rotation': 'Combina acelerômetro, giroscópio e bússola para mapear a orientação espacial 3D completa.',
+    'step': 'Conta e detecta os passos dados pelo usuário (pedômetro físico).',
+    'temperature': 'Mede a temperatura ambiente ao redor do circuito ou do ambiente.',
+    'humidity': 'Mede a umidade relativa do ar externa.',
+  };
+
+  String _getSensorDescription(String name, String type) {
+    final lowerName = name.toLowerCase();
+    final lowerType = type.toLowerCase();
+    for (var entry in _sensorDescriptions.entries) {
+      if (lowerName.contains(entry.key) || lowerType.contains(entry.key)) {
+        return entry.value;
+      }
+    }
+    return 'Sensor físico integrado para medição de telemetria nativa do hardware.';
+  }
+
+  Future<void> _loadMostUsedApps() async {
+    if (_allApps.isEmpty) {
+      final apps = await AppsService.getInstalledApps();
+      _allApps = apps;
+    }
+    final mostUsed = await AppsService.getMostUsedApps(_allApps);
+    if (mounted) {
+      setState(() {
+        _mostUsedApps = mostUsed;
+      });
+    }
+  }
 
   Future<void> _loadHardwareInfo() async {
     try {
@@ -86,6 +127,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
         _allApps = apps;
         _overlayFilteredApps = [];
       });
+      _loadMostUsedApps();
     }
   }
 
@@ -194,6 +236,11 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
         },
         child: Scaffold(
         key: _scaffoldKey,
+        onEndDrawerChanged: (isOpen) {
+          if (isOpen) {
+            _loadMostUsedApps();
+          }
+        },
         drawer: Drawer(
           width: 290,
           backgroundColor: Colors.transparent,
@@ -268,6 +315,30 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                     _buildSectionTitle('RÁDIOS & COMUNICAÇÃO', theme),
                                     _buildWifiTile(theme, isDark),
                                     _buildRadioTile('Bluetooth', _hardwareInfo['bluetooth'] ?? {}, Icons.bluetooth_rounded, theme, isDark),
+                                    _buildRadioTile(
+                                      'Antena 4G / Celular', 
+                                      {
+                                        'available': _hardwareInfo['cellular']?['available'] == true,
+                                        'enabled': _hardwareInfo['cellular']?['available'] == true,
+                                        'state': _hardwareInfo['cellular']?['type'] ?? 'OFFLINE',
+                                        'subtitle': 'Operadora: ${_hardwareInfo['cellular']?['operator'] ?? "Sem Sinal"}',
+                                      }, 
+                                      Icons.signal_cellular_alt_rounded, 
+                                      theme, 
+                                      isDark
+                                    ),
+                                    _buildRadioTile(
+                                      'Receptor de Rádio FM', 
+                                      {
+                                        'available': _hardwareInfo['radio']?['available'] == true,
+                                        'enabled': _hardwareInfo['radio']?['available'] == true,
+                                        'state': 'FM/AM',
+                                        'subtitle': _hardwareInfo['radio']?['state'] ?? 'Receptor de frequência analógica',
+                                      }, 
+                                      Icons.radio_rounded, 
+                                      theme, 
+                                      isDark
+                                    ),
                                     _buildRadioTile('NFC (Near Field)', _hardwareInfo['nfc'] ?? {}, Icons.nfc_rounded, theme, isDark),
                                     _buildRadioTile('Infravermelho', _hardwareInfo['infrared'] ?? {}, Icons.settings_remote_rounded, theme, isDark),
                                     
@@ -356,23 +427,98 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                         ),
                         const SizedBox(height: 12),
                         Divider(color: (isDark ? Colors.white : Colors.black).withOpacity(0.08)),
-                        const SizedBox(height: 16),
-                        _buildSidebarItem(
-                          context,
-                          icon: Icons.notifications_active_rounded,
-                          label: 'Notificações',
-                          subtitle: 'Alertas e mensagens recentes',
-                        ),
-                        const SizedBox(height: 16),
-                        _buildSidebarItem(
-                          context,
-                          icon: Icons.speed_rounded,
-                          label: 'Status do Sistema',
-                          subtitle: 'Desempenho, CPU e memória',
-                        ),
-                        const Spacer(),
+                        const SizedBox(height: 8),
                         Text(
-                          'PORTAL OS v1.0.3',
+                          'MAIS ACESSADOS',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: theme.colorScheme.secondary,
+                            letterSpacing: 0.8,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Expanded(
+                          child: _mostUsedApps.isEmpty
+                              ? Center(
+                                  child: Text(
+                                    'Nenhum aplicativo recente',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: theme.colorScheme.onSurface.withOpacity(0.4),
+                                    ),
+                                  ),
+                                )
+                              : ListView.separated(
+                                  padding: EdgeInsets.zero,
+                                  itemCount: _mostUsedApps.length,
+                                  separatorBuilder: (context, index) => const SizedBox(height: 8),
+                                  itemBuilder: (context, index) {
+                                    final app = _mostUsedApps[index];
+                                    return InkWell(
+                                      onTap: () async {
+                                        _scaffoldKey.currentState?.closeEndDrawer();
+                                        await AppsService.launchApp(app.packageName, app.className);
+                                        _loadMostUsedApps();
+                                      },
+                                      borderRadius: BorderRadius.circular(12),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                        child: Row(
+                                          children: [
+                                            FutureBuilder<Uint8List?>(
+                                              future: AppsService.getAppIcon(app.packageName),
+                                              builder: (context, snapshot) {
+                                                if (snapshot.hasData && snapshot.data != null) {
+                                                  return Image.memory(
+                                                    snapshot.data!,
+                                                    width: 24,
+                                                    height: 24,
+                                                  );
+                                                }
+                                                return Container(
+                                                  width: 24,
+                                                  height: 24,
+                                                  decoration: BoxDecoration(
+                                                    color: theme.colorScheme.primary.withOpacity(0.1),
+                                                    shape: BoxShape.circle,
+                                                  ),
+                                                  child: Icon(
+                                                    Icons.android_rounded,
+                                                    size: 14,
+                                                    color: theme.colorScheme.primary,
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Text(
+                                                app.label,
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: isDark ? const Color(0xFFFAFAFA) : Colors.black,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                            Icon(
+                                              Icons.chevron_right_rounded,
+                                              size: 16,
+                                              color: (isDark ? Colors.white : Colors.black).withOpacity(0.3),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'PORTAL OS v1.0.4',
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.w700,
@@ -1182,7 +1328,7 @@ Widget _buildSidebarItem(
 
   Widget _buildEarthFilterBar(ThemeData theme, bool isDark) {
 
-    final filters = ['Todos', 'Satélite', 'Clima', 'Wikipédia', 'Vetor (3D)'];
+    final filters = ['Todos', 'Satélite', 'Clima', 'Vetor (3D)'];
     return ValueListenableBuilder<String>(
       valueListenable: VirtualTopography.earthFilterNotifier,
       builder: (context, currentFilter, child) {
@@ -1315,6 +1461,7 @@ Widget _buildSidebarItem(
     final bool available = data['available'] != false;
     final bool enabled = data['enabled'] == true;
     final String state = data['state'] ?? 'INATIVO';
+    final String subtitle = data['subtitle'] ?? (available ? (enabled ? 'Ativo e pronto' : 'Disponível, inativo') : 'Não integrado ao hardware');
 
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -1340,7 +1487,7 @@ Widget _buildSidebarItem(
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  available ? (enabled ? 'Ativo e pronto' : 'Disponível, inativo') : 'Não integrado ao hardware',
+                  subtitle,
                   style: TextStyle(fontSize: 10, color: theme.colorScheme.onSurface.withOpacity(0.55)),
                 ),
               ],
@@ -1441,6 +1588,8 @@ Widget _buildSidebarItem(
           final String vendor = sensor['vendor'] ?? 'Desconhecido';
           final double power = (sensor['power'] as num?)?.toDouble() ?? 0.0;
           final String type = (sensor['type'] as String? ?? 'Desconhecido').split('.').last.toUpperCase();
+          final isExpanded = _expandedSensors.contains(name);
+          final desc = _getSensorDescription(name, type);
 
           return Container(
             margin: const EdgeInsets.symmetric(vertical: 3),
@@ -1452,40 +1601,77 @@ Widget _buildSidebarItem(
                 color: theme.colorScheme.primary.withOpacity(0.04),
               ),
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.sensors_rounded, size: 14, color: theme.colorScheme.primary.withOpacity(0.6)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        name,
-                        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface.withOpacity(0.85)),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                Row(
+                  children: [
+                    Icon(Icons.sensors_rounded, size: 14, color: theme.colorScheme.primary.withOpacity(0.6)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            name,
+                            style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface.withOpacity(0.85)),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Fabricante: $vendor • Consumo: ${power.toStringAsFixed(2)}mA',
+                            style: TextStyle(fontSize: 8.5, color: theme.colorScheme.onSurface.withOpacity(0.45)),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Fabricante: $vendor • Consumo: ${power.toStringAsFixed(2)}mA',
-                        style: TextStyle(fontSize: 8.5, color: theme.colorScheme.onSurface.withOpacity(0.45)),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary.withOpacity(0.05),
+                        borderRadius: BorderRadius.circular(5),
                       ),
-                    ],
-                  ),
+                      child: Text(
+                        type,
+                        style: TextStyle(fontSize: 6.5, fontWeight: FontWeight.bold, color: theme.colorScheme.primary.withOpacity(0.8)),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    IconButton(
+                      icon: Icon(
+                        isExpanded ? Icons.info_rounded : Icons.info_outline_rounded,
+                        size: 14,
+                        color: theme.colorScheme.primary.withOpacity(isExpanded ? 0.95 : 0.5),
+                      ),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: () {
+                        setState(() {
+                          if (isExpanded) {
+                            _expandedSensors.remove(name);
+                          } else {
+                            _expandedSensors.add(name);
+                          }
+                        });
+                      },
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 6),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(5),
+                if (isExpanded) ...[
+                  const SizedBox(height: 6),
+                  Divider(color: theme.colorScheme.primary.withOpacity(0.08)),
+                  const SizedBox(height: 4),
+                  Text(
+                    desc,
+                    style: TextStyle(
+                      fontSize: 8.5,
+                      color: theme.colorScheme.onSurface.withOpacity(0.65),
+                      height: 1.3,
+                    ),
                   ),
-                  child: Text(
-                    type,
-                    style: TextStyle(fontSize: 6.5, fontWeight: FontWeight.bold, color: theme.colorScheme.primary.withOpacity(0.8)),
-                  ),
-                ),
+                ],
               ],
             ),
           );

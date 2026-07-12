@@ -72,4 +72,14 @@ class LauncherService {
       await _channel.invokeMethod('dismissNotification', {'key': key});
     } catch (_) {}
   }
+
+  /// Opens the system clock application.
+  static Future<bool> openClockApp() async {
+    try {
+      final bool result = await _channel.invokeMethod('openClockApp');
+      return result;
+    } catch (_) {
+      return false;
+    }
+  }
 }

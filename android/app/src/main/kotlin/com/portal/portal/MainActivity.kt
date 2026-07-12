@@ -22,6 +22,8 @@ import android.net.wifi.WifiManager
 import android.bluetooth.BluetoothAdapter
 import android.nfc.NfcAdapter
 import android.hardware.ConsumerIrManager
+import android.telephony.TelephonyManager
+import android.provider.AlarmClock
 
 class MainActivity : FlutterActivity() {
     private val LAUNCHER_CHANNEL = "com.portal/launcher_setup"
@@ -70,6 +72,9 @@ class MainActivity : FlutterActivity() {
                     } else {
                         result.error("INVALID_ARGUMENT", "Key is null", null)
                     }
+                }
+                "openClockApp" -> {
+                    result.success(openClockApp())
                 }
                 else -> {
                     result.notImplemented()
@@ -220,6 +225,35 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun openClockApp(): Boolean {
+        val clockPackages = arrayOf(
+            "com.sec.android.app.clockpackage",
+            "com.google.android.deskclock",
+            "com.android.deskclock",
+            "com.oneplus.deskclock",
+            "com.xiaomi.misettings",
+            "com.coloros.alarmclock"
+        )
+        for (pkg in clockPackages) {
+            try {
+                val intent = packageManager.getLaunchIntentForPackage(pkg)
+                if (intent != null) {
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(intent)
+                    return true
+                }
+            } catch (e: Exception) {}
+        }
+        try {
+            val intent = Intent(AlarmClock.ACTION_SHOW_ALARMS)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+            return true
+        } catch (e: Exception) {
+            return false
+        }
+    }
+
     private fun getDeviceHardwareInfo(): Map<String, Any> {
         val info = mutableMapOf<String, Any>()
         
@@ -271,7 +305,64 @@ class MainActivity : FlutterActivity() {
             "state" to (if (hasIr) "ATIVO" else "NÃO DISPONÍVEL")
         )
 
-        // 5. Sensors list
+        // 5. Cellular Antenna (4G/LTE/5G)
+        var cellularOperator = "Sem Sinal/Sem SIM"
+        var cellularType = "Indisponível"
+        var isSimReady = false
+        try {
+            val telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+            if (telephonyManager != null) {
+                isSimReady = telephonyManager.simState == TelephonyManager.SIM_STATE_READY
+                if (isSimReady) {
+                    cellularOperator = telephonyManager.networkOperatorName ?: "Desconhecido"
+                    val netType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        telephonyManager.dataNetworkType
+                    } else {
+                        telephonyManager.networkType
+                    }
+                    cellularType = when (netType) {
+                        TelephonyManager.NETWORK_TYPE_LTE -> "4G (LTE)"
+                        TelephonyManager.NETWORK_TYPE_NR -> "5G"
+                        TelephonyManager.NETWORK_TYPE_HSDPA, TelephonyManager.NETWORK_TYPE_HSPAP, TelephonyManager.NETWORK_TYPE_HSUPA -> "3G"
+                        TelephonyManager.NETWORK_TYPE_GPRS, TelephonyManager.NETWORK_TYPE_EDGE -> "2G"
+                        else -> "Celular/4G"
+                    }
+                }
+            }
+        } catch (e: Exception) {}
+
+        info["cellular"] = mapOf(
+            "available" to isSimReady,
+            "operator" to cellularOperator,
+            "type" to cellularType,
+            "state" to (if (isSimReady) "ATIVO" else "NÃO DETECTADO")
+        )
+
+        // 6. FM Radio Receiver
+        val fmPackages = arrayOf(
+            "com.sec.android.app.fm", 
+            "com.mediatek.fmradio", 
+            "com.android.fmradio", 
+            "com.caf.fmradio"
+        )
+        var hasFm = false
+        for (pkg in fmPackages) {
+            try {
+                packageManager.getPackageInfo(pkg, 0)
+                hasFm = true
+                break
+            } catch (e: Exception) {}
+        }
+        // Samsung A15 has physical FM radio hardware
+        if (Build.MODEL.contains("A15") || Build.DEVICE.contains("A15")) {
+            hasFm = true
+        }
+        info["radio"] = mapOf(
+            "available" to hasFm,
+            "state" to (if (hasFm) "DISPONÍVEL (requer fone)" else "NÃO SUPORTADO")
+        )
+
+        // 7. Sensors list
         val sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
         val sensorList = sensorManager?.getSensorList(Sensor.TYPE_ALL) ?: emptyList()
         val sensors = sensorList.map { sensor ->

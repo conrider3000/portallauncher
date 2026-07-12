@@ -43,6 +43,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
   ui.Image? _earthImage;
   ui.Image? _cloudsImage;
   bool _isLoadingTexture = true;
+  Timer? _cloudsRefreshTimer;
   String _loadingStatus = 'CONECTANDO AO SISTEMA DE SATÉLITES...';
 
   Map<String, dynamic>? _selectedGeoPoint;
@@ -107,10 +108,14 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     super.initState();
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 86400), // 24h = real Earth rotation
+      duration: const Duration(seconds: 180),
     )..repeat();
 
     _downloadEarthTexture();
+    _cloudsRefreshTimer = Timer.periodic(const Duration(minutes: 10), (_) {
+      _downloadEarthTexture();
+    });
+
     VirtualTopography.mapSearchQueryNotifier.addListener(_onMapSearchQueryChanged);
     VirtualTopography.earthFilterNotifier.addListener(_onFilterChanged);
     VirtualTopography.directSearchTrigger.addListener(_onDirectSearchTriggered);
@@ -125,6 +130,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     VirtualTopography.toggleRotationTrigger.removeListener(_onToggleRotationChanged);
     _animationController.dispose();
     _popupTimer?.cancel();
+    _cloudsRefreshTimer?.cancel();
     super.dispose();
   }
 
@@ -612,6 +618,13 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     _baseRotationX = _manualRotationX;
     _baseRotationY = _manualRotationY;
     _baseZoom = _zoom;
+    _animationController.stop();
+  }
+
+  void _onScaleEnd(ScaleEndDetails details) {
+    if (_selectedGeoPoint == null && VirtualTopography.toggleRotationTrigger.value) {
+      _animationController.repeat();
+    }
   }
 
   void _onScaleUpdate(ScaleUpdateDetails details) {
@@ -743,6 +756,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
                 GestureDetector(
                   onScaleStart: _onScaleStart,
                   onScaleUpdate: _onScaleUpdate,
+                  onScaleEnd: _onScaleEnd,
                   onTapDown: (details) => _handleTapDown(details, width, height),
                   onDoubleTap: _handleDoubleTapLocation,
                   child: AnimatedBuilder(
@@ -1147,8 +1161,8 @@ class _TexturedGlobePainter extends CustomPainter {
     }
 
     final bool showEarth = filter != 'Vetor (3D)';
-    final bool showClouds = filter == 'Clima' || filter == 'Todos' || filter == 'Wikipédia';
-    final bool showGrid = filter == 'Vetor (3D)' || filter == 'Todos';
+    final bool showClouds = filter == 'Clima' || filter == 'Todos';
+    final bool showGrid = filter == 'Vetor (3D)';
 
     if (indices.isNotEmpty) {
       final vertices = ui.Vertices(
@@ -1202,11 +1216,12 @@ class _TexturedGlobePainter extends CustomPainter {
               0, 0, 0, 1
             ]),
           )
+          ..blendMode = BlendMode.screen
           ..filterQuality = FilterQuality.medium;
 
         canvas.save();
         canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: radius)));
-        canvas.drawVertices(vertices, BlendMode.srcOver, cloudsPaint);
+        canvas.drawVertices(vertices, BlendMode.screen, cloudsPaint);
         canvas.restore();
       }
 
