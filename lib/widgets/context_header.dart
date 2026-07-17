@@ -235,6 +235,9 @@ class ContextHeader extends StatefulWidget {
 
   // Notifier to notify parent widgets when the info details panel is open or closed
   static final ValueNotifier<bool> isPanelOpenNotifier = ValueNotifier(false);
+  static final ValueNotifier<String> cityNameNotifier = ValueNotifier('Curitiba, BR');
+  static final ValueNotifier<String> weatherTempNotifier = ValueNotifier('--');
+  static final ValueNotifier<String> weatherDescNotifier = ValueNotifier('--');
 
   @override
   State<ContextHeader> createState() => _ContextHeaderState();
@@ -273,6 +276,8 @@ class _ContextHeaderState extends State<ContextHeader> {
         });
       }
     });
+    ContextHeader.isPanelOpenNotifier.addListener(_onPanelNotifierChanged);
+    _showPanel = ContextHeader.isPanelOpenNotifier.value;
     _initLocation();
   }
 
@@ -284,6 +289,7 @@ class _ContextHeaderState extends State<ContextHeader> {
     final cachedLon = prefs.getDouble('portal_last_lon');
     if (cached != null && mounted) {
       setState(() => _cityName = cached);
+      _updateNotifiers();
     }
     if (cachedLat != null && cachedLon != null) {
       _userLat = cachedLat;
@@ -317,7 +323,10 @@ class _ContextHeaderState extends State<ContextHeader> {
         desiredAccuracy: LocationAccuracy.low,
         timeLimit: const Duration(seconds: 15),
       );
-      if (mounted) setState(() { _userLat = pos.latitude; _userLon = pos.longitude; });
+      if (mounted) {
+        setState(() { _userLat = pos.latitude; _userLon = pos.longitude; });
+        _updateNotifiers();
+      }
       await _fetchCityName(pos.latitude, pos.longitude);
       await _fetchWeather(pos.latitude, pos.longitude);
     } catch (_) {
@@ -349,6 +358,7 @@ class _ContextHeaderState extends State<ContextHeader> {
         final name = '$city, $country';
         if (mounted) {
           setState(() => _cityName = name);
+          _updateNotifiers();
         }
         // Cache for next launch
         final prefs = await SharedPreferences.getInstance();
@@ -363,8 +373,17 @@ class _ContextHeaderState extends State<ContextHeader> {
 
   @override
   void dispose() {
+    ContextHeader.isPanelOpenNotifier.removeListener(_onPanelNotifierChanged);
     _timer.cancel();
     super.dispose();
+  }
+
+  void _onPanelNotifierChanged() {
+    if (mounted && _showPanel != ContextHeader.isPanelOpenNotifier.value) {
+      setState(() {
+        _showPanel = ContextHeader.isPanelOpenNotifier.value;
+      });
+    }
   }
 
   Future<void> _fetchWeather(double lat, double lon) async {
@@ -382,6 +401,7 @@ class _ContextHeaderState extends State<ContextHeader> {
             _weatherTemp = '${(temp as num).toStringAsFixed(0)}°C';
             _interpretWeatherCode(code as int);
           });
+          _updateNotifiers();
         }
       }
     } catch (_) {}
@@ -410,6 +430,12 @@ class _ContextHeaderState extends State<ContextHeader> {
     });
   }
 
+  void _updateNotifiers() {
+    ContextHeader.cityNameNotifier.value = _cityName;
+    ContextHeader.weatherTempNotifier.value = _weatherTemp;
+    ContextHeader.weatherDescNotifier.value = _weatherDesc;
+  }
+
   void _cycleCalendar() {
     setState(() {
       _calendarSystemIndex = (_calendarSystemIndex + 1) % 5;
@@ -433,8 +459,8 @@ class _ContextHeaderState extends State<ContextHeader> {
   }
 
   Widget _getCalendarSymbolWidget(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final color = isDark ? Colors.white : Colors.black.withOpacity(0.8);
+    final theme = Theme.of(context);
+    final color = theme.colorScheme.primary;
     
     return CustomPaint(
       size: const Size(14, 14),
@@ -484,7 +510,7 @@ class _ContextHeaderState extends State<ContextHeader> {
     return Padding(
       padding: const EdgeInsets.all(8.0),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           // 1. Sun/Moon Icon (Top Left)
           GestureDetector(
@@ -500,7 +526,7 @@ class _ContextHeaderState extends State<ContextHeader> {
                 duration: const Duration(milliseconds: 300),
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF1C1C1E) : const Color(0xFFE5E5EA),
+                  color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
                   shape: BoxShape.circle,
                   boxShadow: [
                     BoxShadow(
@@ -540,13 +566,14 @@ class _ContextHeaderState extends State<ContextHeader> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                             // Line 1: Real-time clock with seconds + timezone
+                             // Line 1: Real-time clock with seconds + Moon Phase
                              InkWell(
                                onTap: () => LauncherService.openClockApp(),
                                borderRadius: BorderRadius.circular(8),
                                child: Padding(
-                                 padding: const EdgeInsets.symmetric(vertical: 2.0, horizontal: 4.0),
+                                 padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 6.0),
                                  child: Row(
+                                   crossAxisAlignment: CrossAxisAlignment.center,
                                    children: [
                                      Icon(
                                        Icons.access_time_rounded,
@@ -556,8 +583,10 @@ class _ContextHeaderState extends State<ContextHeader> {
                                      const SizedBox(width: 8),
                                      Text(
                                        "${_currentTime.hour.toString().padLeft(2, '0')}:${_currentTime.minute.toString().padLeft(2, '0')}:${_currentTime.second.toString().padLeft(2, '0')}",
-                                       style: theme.textTheme.bodyMedium?.copyWith(
-                                         fontWeight: FontWeight.bold,
+                                       style: TextStyle(
+                                         fontSize: 12.5,
+                                         fontWeight: FontWeight.w700,
+                                         color: theme.colorScheme.onSurface,
                                          letterSpacing: 0.5,
                                        ),
                                      ),
@@ -566,71 +595,66 @@ class _ContextHeaderState extends State<ContextHeader> {
                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                        decoration: BoxDecoration(
                                          color: theme.colorScheme.primary.withOpacity(0.12),
-                                         borderRadius: BorderRadius.circular(8),
+                                         borderRadius: BorderRadius.circular(6),
                                        ),
                                        child: Text(
                                          _getTimezoneLabel(),
                                          style: TextStyle(
-                                           fontSize: 10,
-                                           fontWeight: FontWeight.w700,
+                                           fontSize: 9,
+                                           fontWeight: FontWeight.w800,
                                            color: theme.colorScheme.primary,
                                            letterSpacing: 0.3,
                                          ),
+                                       ),
+                                     ),
+                                     const SizedBox(width: 12),
+                                     Icon(
+                                       moonInfo['icon'],
+                                       size: 12,
+                                       color: theme.colorScheme.primary.withOpacity(0.75),
+                                     ),
+                                     const SizedBox(width: 6),
+                                     Text(
+                                       moonInfo['name'],
+                                       style: TextStyle(
+                                         fontSize: 11,
+                                         fontWeight: FontWeight.w700,
+                                         color: theme.colorScheme.onSurface.withOpacity(0.7),
                                        ),
                                      ),
                                    ],
                                  ),
                                ),
                              ),
-                            const SizedBox(height: 6),
+                             const SizedBox(height: 4),
 
-                            // Line 2: Date with Calendar cycle support
-                            InkWell(
-                              onTap: _cycleCalendar,
-                              borderRadius: BorderRadius.circular(6),
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 2.0),
-                                child: Row(
-                                  children: [
-                                    _getCalendarSymbolWidget(context),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        _getCalendarDateString(),
-                                        style: theme.textTheme.bodySmall?.copyWith(
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-
-                            // Line 3: Location and Weather
-                            Row(
-                              children: [
-                                Icon(
-                                  Icons.location_on_rounded,
-                                  size: 14,
-                                  color: theme.colorScheme.primary.withOpacity(0.7),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    "$_cityName • $_weatherTemp, $_weatherDesc",
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: theme.colorScheme.onSurface.withOpacity(0.7),
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
+                             // Line 2: Date with Calendar cycle support
+                             InkWell(
+                               onTap: _cycleCalendar,
+                               borderRadius: BorderRadius.circular(8),
+                               child: Padding(
+                                 padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 6.0),
+                                 child: Row(
+                                   crossAxisAlignment: CrossAxisAlignment.center,
+                                   children: [
+                                     _getCalendarSymbolWidget(context),
+                                     const SizedBox(width: 8),
+                                     Expanded(
+                                       child: Text(
+                                         _getCalendarDateString(),
+                                         style: TextStyle(
+                                           fontSize: 12.5,
+                                           fontWeight: FontWeight.w700,
+                                           color: theme.colorScheme.onSurface,
+                                         ),
+                                         maxLines: 1,
+                                         overflow: TextOverflow.ellipsis,
+                                       ),
+                                     ),
+                                   ],
+                                 ),
+                               ),
+                             ),
                           ],
                         ),
                       ),

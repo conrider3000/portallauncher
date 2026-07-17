@@ -109,7 +109,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     super.initState();
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 180),
+      duration: const Duration(hours: 24),
     )..repeat();
 
     _downloadEarthTexture();
@@ -157,6 +157,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     final query = VirtualTopography.directSearchTrigger.value?.trim();
     if (query == null || query.isEmpty) return;
     _performDirectSearch(query);
+    VirtualTopography.directSearchTrigger.value = null;
   }
 
   Future<void> _performDirectSearch(String query) async {
@@ -306,8 +307,9 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
             };
             
             _manualRotationY = -lonRad - math.pi - autoRotY;
-            _manualRotationX = -latRad - 0.2;
+            _manualRotationX = latRad - 0.2;
             _zoom = 1.1; // Reduced from 1.35 to prevent details card overlap
+            VirtualTopography.earthFilterNotifier.value = 'Monitoramento';
           });
         }
       }
@@ -597,10 +599,11 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
         final autoRotY = _animationController.value * 2 * math.pi;
 
         _manualRotationY = -lonRad - math.pi - autoRotY;
-        _manualRotationX = -latRad - 0.2;
+        _manualRotationX = latRad - 0.2;
         _zoom = 1.1;
         _selectedGeoPoint = userPoint;
         _animationController.stop();
+        VirtualTopography.earthFilterNotifier.value = 'Monitoramento';
       });
     }
   }
@@ -647,7 +650,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     if (_showFlatMap) return;
     // Shift the tap detection center Y down matching the painter's shift to avoid details card overlapping
     final center = Offset(width / 2, height / 2 + (_selectedGeoPoint != null ? 40.0 : 0.0));
-    final radius = (math.min(width, height) * 0.35) * _zoom;
+    final radius = ((width - 32) / 2) * _zoom;
 
     final autoRotY = _animationController.value * 2 * math.pi;
     final rotY = autoRotY + _manualRotationY;
@@ -656,29 +659,31 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     Map<String, dynamic>? closestPoint;
     double minDistance = 30.0;
 
-    for (var gp in _geoPoints) {
-      final double latRad = gp['lat'] * math.pi / 180.0;
-      final double lonRad = gp['lon'] * math.pi / 180.0;
-      final double theta = math.pi / 2 - latRad;
-      final double phi = lonRad + math.pi;
+    if (VirtualTopography.earthFilterNotifier.value == 'Monitoramento') {
+      for (var gp in _geoPoints) {
+        final double latRad = gp['lat'] * math.pi / 180.0;
+        final double lonRad = gp['lon'] * math.pi / 180.0;
+        final double theta = math.pi / 2 - latRad;
+        final double phi = lonRad + math.pi;
 
-      final double x3d = radius * math.sin(theta) * math.sin(phi);
-      final double y3d = -radius * math.cos(theta);
-      final double z3d = radius * math.sin(theta) * math.cos(phi);
+        final double x3d = radius * math.sin(theta) * math.sin(phi);
+        final double y3d = radius * math.cos(theta);
+        final double z3d = radius * math.sin(theta) * math.cos(phi);
 
-      final double rx = x3d * math.cos(rotY) + z3d * math.sin(rotY);
-      final double rz = -x3d * math.sin(rotY) + z3d * math.cos(rotY);
+        final double rx = x3d * math.cos(rotY) + z3d * math.sin(rotY);
+        final double rz = -x3d * math.sin(rotY) + z3d * math.cos(rotY);
 
-      final double finalX = rx;
-      final double finalY = y3d * math.cos(rotX) - rz * math.sin(rotX);
-      final double finalZ = y3d * math.sin(rotX) + rz * math.cos(rotX);
+        final double finalX = rx;
+        final double finalY = y3d * math.cos(rotX) - rz * math.sin(rotX);
+        final double finalZ = y3d * math.sin(rotX) + rz * math.cos(rotX);
 
-      if (finalZ > 0) {
-        final screenPos = Offset(center.dx + finalX, center.dy + finalY);
-        final dist = (details.localPosition - screenPos).distance;
-        if (dist < minDistance) {
-          minDistance = dist;
-          closestPoint = gp;
+        if (finalZ > 0) {
+          final screenPos = Offset(center.dx + finalX, center.dy + finalY);
+          final dist = (details.localPosition - screenPos).distance;
+          if (dist < minDistance) {
+            minDistance = dist;
+            closestPoint = gp;
+          }
         }
       }
     }
@@ -691,7 +696,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
       setState(() {
         _selectedGeoPoint = closestPoint;
         _manualRotationY = -lonRad - math.pi - autoRotY;
-        _manualRotationX = -latRad - 0.2;
+        _manualRotationX = latRad - 0.2;
         _zoom = 1.1; // Reduced zoom from 1.35 to 1.1 to avoid overlapping the details card
         _animationController.stop();
       });
@@ -700,6 +705,9 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
         if (mounted) {
           setState(() {
             _selectedGeoPoint = null;
+            _zoom = 1.0;
+            _manualRotationX = -0.2;
+            _manualRotationY = 0.0;
             if (VirtualTopography.toggleRotationTrigger.value) {
               _animationController.repeat();
             }
@@ -709,6 +717,9 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     } else {
       setState(() {
         _selectedGeoPoint = null;
+        _zoom = 1.0;
+        _manualRotationX = -0.2;
+        _manualRotationY = 0.0;
         if (VirtualTopography.toggleRotationTrigger.value) {
           _animationController.repeat();
         }
@@ -1119,7 +1130,7 @@ class _TexturedGlobePainter extends CustomPainter {
     final double cx = size.width / 2;
     // Shift globe center Y down by 40dp when selected to avoid overlapping the top details card
     final double cy = size.height / 2 + (hasSelection ? 40.0 : 0.0);
-    final double radius = (math.min(size.width, size.height) * 0.35) * zoom;
+    final double radius = ((size.width - 32) / 2) * zoom;
 
     final double autoRotY = rotationProgress * 2 * math.pi;
     final double rotY = autoRotY + manualRotY;
@@ -1162,7 +1173,7 @@ class _TexturedGlobePainter extends CustomPainter {
         final double cosPhi = math.cos(phi);
 
         final double x = radius * sinTheta * sinPhi;
-        final double y = -radius * cosTheta;
+        final double y = radius * cosTheta;
         final double z = radius * sinTheta * cosPhi;
 
         final double rx = x * math.cos(rotY) + z * math.sin(rotY);
@@ -1314,11 +1325,7 @@ class _TexturedGlobePainter extends CustomPainter {
     final textPainter = TextPainter(textDirection: TextDirection.ltr);
 
     for (var gp in geoPoints) {
-      final isWikiPoint = gp['status'] == 'LUGAR' || gp['status'] == 'PAÍS';
-      final isGPSPoint = gp['name'] == 'Minha Localização';
-
-      if (filter == 'Wikipédia' && !isWikiPoint) continue;
-      if (filter == 'Clima' && (isWikiPoint || isGPSPoint)) continue;
+      if (filter != 'Monitoramento') continue;
 
       final double latRad = gp['lat'] * math.pi / 180.0;
       final double lonRad = gp['lon'] * math.pi / 180.0;
@@ -1326,7 +1333,7 @@ class _TexturedGlobePainter extends CustomPainter {
       final double phi = lonRad + math.pi;
 
       final double x = radius * math.sin(theta) * math.sin(phi);
-      final double y = -radius * math.cos(theta);
+      final double y = radius * math.cos(theta);
       final double z = radius * math.sin(theta) * math.cos(phi);
 
       final double rx = x * math.cos(rotY) + z * math.sin(rotY);
@@ -1338,6 +1345,8 @@ class _TexturedGlobePainter extends CustomPainter {
 
       if (finalZ > 0) {
         final screenPos = Offset(cx + finalX, cy + finalY);
+        final bool isGPSPoint = gp['project'] == 'Receptor GPS Local';
+        final bool isWikiPoint = gp['project'] == 'Artigo Wikipédia';
 
         if (isGPSPoint || isWikiPoint) {
           final pinPath = ui.Path();

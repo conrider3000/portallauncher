@@ -30,6 +30,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
   final FocusNode _overlayFocusNode = FocusNode();
   bool _searchOverlayOpen = false;
   double _lastPointerDownX = 0.0;
+  double _sideBarWidth = 0.0;
 
   // For unified app search inside the overlay
   List<AppInfo> _allApps = [];
@@ -73,10 +74,10 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
       final apps = await AppsService.getInstalledApps();
       _allApps = apps;
     }
-    final mostUsed = await AppsService.getMostUsedApps(_allApps);
+    final recent = await AppsService.getRecentApps(_allApps);
     if (mounted) {
       setState(() {
-        _mostUsedApps = mostUsed;
+        _mostUsedApps = recent;
       });
     }
   }
@@ -165,7 +166,11 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
       _currentPageIndex = index;
       _searchOverlayOpen = false;
       _overlayFilteredApps = [];
+      _sideBarWidth = 0.0;
     });
+    // Close climate/time space panel on page change
+    ContextHeader.isPanelOpenNotifier.value = false;
+
     _searchController.clear();
     _overlaySearchController.clear();
     _searchFocusNode.unfocus();
@@ -197,11 +202,15 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
   }
 
   void _navigateToPage(int index) {
-    _pageController.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeInOut,
-    );
+    if ((index - _currentPageIndex).abs() > 1) {
+      _pageController.jumpToPage(index);
+    } else {
+      _pageController.animateToPage(
+        index,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
   }
 
   @override
@@ -220,15 +229,16 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
           if (didPop) return;
           if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
             _scaffoldKey.currentState?.closeDrawer();
-          } else if (_scaffoldKey.currentState?.isEndDrawerOpen ?? false) {
-            _scaffoldKey.currentState?.closeEndDrawer();
+          } else if (_sideBarWidth > 0.0) {
+            setState(() => _sideBarWidth = 0.0);
           } else if (_currentPageIndex > 0) {
             _navigateToPage(0);
           } else {
             Future.delayed(const Duration(milliseconds: 120), () {
               if (!mounted) return;
               if (_lastPointerDownX > screenWidth / 2) {
-                _scaffoldKey.currentState?.openEndDrawer();
+                _loadMostUsedApps();
+                setState(() => _sideBarWidth = 72.0);
               } else {
                 _scaffoldKey.currentState?.openDrawer();
               }
@@ -237,11 +247,6 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
         },
         child: Scaffold(
         key: _scaffoldKey,
-        onEndDrawerChanged: (isOpen) {
-          if (isOpen) {
-            _loadMostUsedApps();
-          }
-        },
         drawer: Drawer(
           width: 290,
           backgroundColor: Colors.transparent,
@@ -424,158 +429,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
             ),
           ),
         ),
-        endDrawer: Drawer(
-          width: 280,
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          child: ClipRRect(
-            borderRadius: const BorderRadius.horizontal(left: Radius.circular(32)),
-            child: BackdropFilter(
-              filter: ui.ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: (isDark ? const Color(0xFF1C1C1E) : const Color(0xFFE5E5EA)).withOpacity(0.7),
-                  borderRadius: const BorderRadius.horizontal(left: Radius.circular(32)),
-                  border: Border(
-                    left: BorderSide(
-                      color: (isDark ? Colors.white : Colors.black).withOpacity(0.08),
-                      width: 1.5,
-                    ),
-                  ),
-                ),
-                child: SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 24.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.menu_open_rounded,
-                              color: theme.colorScheme.primary,
-                              size: 24,
-                            ),
-                            const SizedBox(width: 12),
-                            Text(
-                              'Lateral Bar',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: isDark ? const Color(0xFFFAFAFA) : Colors.black,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Divider(color: (isDark ? Colors.white : Colors.black).withOpacity(0.08)),
-                        const SizedBox(height: 8),
-                        Text(
-                          'MAIS ACESSADOS',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w800,
-                            color: theme.colorScheme.secondary,
-                            letterSpacing: 0.8,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Expanded(
-                          child: _mostUsedApps.isEmpty
-                              ? Center(
-                                  child: Text(
-                                    'Nenhum aplicativo recente',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: theme.colorScheme.onSurface.withOpacity(0.4),
-                                    ),
-                                  ),
-                                )
-                              : ListView.separated(
-                                  padding: EdgeInsets.zero,
-                                  itemCount: _mostUsedApps.length,
-                                  separatorBuilder: (context, index) => const SizedBox(height: 8),
-                                  itemBuilder: (context, index) {
-                                    final app = _mostUsedApps[index];
-                                    return InkWell(
-                                      onTap: () async {
-                                        _scaffoldKey.currentState?.closeEndDrawer();
-                                        await AppsService.launchApp(app.packageName, app.className);
-                                        _loadMostUsedApps();
-                                      },
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: Padding(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                        child: Row(
-                                          children: [
-                                            FutureBuilder<Uint8List?>(
-                                              future: AppsService.getAppIcon(app.packageName),
-                                              builder: (context, snapshot) {
-                                                if (snapshot.hasData && snapshot.data != null) {
-                                                  return Image.memory(
-                                                    snapshot.data!,
-                                                    width: 24,
-                                                    height: 24,
-                                                  );
-                                                }
-                                                return Container(
-                                                  width: 24,
-                                                  height: 24,
-                                                  decoration: BoxDecoration(
-                                                    color: theme.colorScheme.primary.withOpacity(0.1),
-                                                    shape: BoxShape.circle,
-                                                  ),
-                                                  child: Icon(
-                                                    Icons.android_rounded,
-                                                    size: 14,
-                                                    color: theme.colorScheme.primary,
-                                                  ),
-                                                );
-                                              },
-                                            ),
-                                            const SizedBox(width: 12),
-                                            Expanded(
-                                              child: Text(
-                                                app.label,
-                                                style: TextStyle(
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.w700,
-                                                  color: isDark ? const Color(0xFFFAFAFA) : Colors.black,
-                                                ),
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                            Icon(
-                                              Icons.chevron_right_rounded,
-                                              size: 16,
-                                              color: (isDark ? Colors.white : Colors.black).withOpacity(0.3),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'PORTAL OS v1.0.4',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w700,
-                            color: (isDark ? Colors.white : Colors.black).withOpacity(0.3),
-                            letterSpacing: 1.0,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
+        // endDrawer removed to support custom full-screen/edge swipe drawer
         backgroundColor: isDark ? Colors.black : Colors.white,
         body: SafeArea(
           child: Stack(
@@ -612,7 +466,9 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                       ? 'Home'
                                       : _currentPageIndex == 1
                                           ? 'Memória'
-                                          : 'Aplicativos',
+                                          : _currentPageIndex == 2
+                                              ? 'Aplicativos'
+                                              : 'Correio',
                                   style: TextStyle(
                                     fontSize: 20,
                                     fontWeight: FontWeight.w800,
@@ -756,7 +612,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                             color: isDark ? const Color(0xFF070D09) : const Color(0xFFF4F7F5),
                             borderRadius: BorderRadius.circular(24),
                             border: Border.all(
-                              color: theme.colorScheme.primary.withOpacity(0.18),
+                              color: theme.colorScheme.primary.withOpacity(0.1),
                             ),
                           ),
                           child: Builder(
@@ -773,12 +629,13 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                       onTap: () => _navigateToPage(0),
                                       child: Container(
                                         height: double.infinity,
+                                        margin: EdgeInsets.zero,
                                         alignment: Alignment.center,
                                         decoration: BoxDecoration(
                                           color: _currentPageIndex == 0
-                                              ? theme.colorScheme.primary.withOpacity(0.12)
+                                              ? theme.colorScheme.primary
                                               : Colors.transparent,
-                                          borderRadius: const BorderRadius.horizontal(left: Radius.circular(23)),
+                                          borderRadius: BorderRadius.circular(24),
                                         ),
                                         child: Row(
                                           mainAxisAlignment: MainAxisAlignment.center,
@@ -787,7 +644,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                               Icons.public_rounded,
                                               size: 16,
                                               color: _currentPageIndex == 0
-                                                  ? theme.colorScheme.primary
+                                                  ? theme.colorScheme.onPrimary
                                                   : inactiveColor,
                                             ),
                                             const SizedBox(width: 4),
@@ -797,7 +654,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                                 fontSize: 10,
                                                 fontWeight: FontWeight.bold,
                                                 color: _currentPageIndex == 0
-                                                    ? theme.colorScheme.primary
+                                                    ? theme.colorScheme.onPrimary
                                                     : inactiveColor,
                                               ),
                                             ),
@@ -806,23 +663,19 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                       ),
                                     ),
                                   ),
-                                  // First Divider
-                                  Container(
-                                    width: 1,
-                                    height: 18,
-                                    color: theme.colorScheme.primary.withOpacity(0.18),
-                                  ),
                                   // Middle Tab 1 (Memória)
                                   Expanded(
                                     child: GestureDetector(
                                       onTap: () => _navigateToPage(1),
                                       child: Container(
                                         height: double.infinity,
+                                        margin: EdgeInsets.zero,
                                         alignment: Alignment.center,
                                         decoration: BoxDecoration(
                                           color: _currentPageIndex == 1
-                                              ? theme.colorScheme.primary.withOpacity(0.12)
+                                              ? theme.colorScheme.primary
                                               : Colors.transparent,
+                                          borderRadius: BorderRadius.circular(24),
                                         ),
                                         child: Row(
                                           mainAxisAlignment: MainAxisAlignment.center,
@@ -831,7 +684,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                               Icons.sd_storage_rounded,
                                               size: 16,
                                               color: _currentPageIndex == 1
-                                                  ? theme.colorScheme.primary
+                                                  ? theme.colorScheme.onPrimary
                                                   : inactiveColor,
                                             ),
                                             const SizedBox(width: 4),
@@ -841,7 +694,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                                 fontSize: 10,
                                                 fontWeight: FontWeight.bold,
                                                 color: _currentPageIndex == 1
-                                                    ? theme.colorScheme.primary
+                                                    ? theme.colorScheme.onPrimary
                                                     : inactiveColor,
                                               ),
                                             ),
@@ -850,23 +703,19 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                       ),
                                     ),
                                   ),
-                                  // Second Divider
-                                  Container(
-                                    width: 1,
-                                    height: 18,
-                                    color: theme.colorScheme.primary.withOpacity(0.18),
-                                  ),
                                   // Middle Tab 2 (Aplicativos)
                                   Expanded(
                                     child: GestureDetector(
                                       onTap: () => _navigateToPage(2),
                                       child: Container(
                                         height: double.infinity,
+                                        margin: EdgeInsets.zero,
                                         alignment: Alignment.center,
                                         decoration: BoxDecoration(
                                           color: _currentPageIndex == 2
-                                              ? theme.colorScheme.primary.withOpacity(0.12)
+                                              ? theme.colorScheme.primary
                                               : Colors.transparent,
+                                          borderRadius: BorderRadius.circular(24),
                                         ),
                                         child: Row(
                                           mainAxisAlignment: MainAxisAlignment.center,
@@ -875,7 +724,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                               Icons.apps_rounded,
                                               size: 16,
                                               color: _currentPageIndex == 2
-                                                  ? theme.colorScheme.primary
+                                                  ? theme.colorScheme.onPrimary
                                                   : inactiveColor,
                                             ),
                                             const SizedBox(width: 4),
@@ -885,7 +734,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                                 fontSize: 10,
                                                 fontWeight: FontWeight.bold,
                                                 color: _currentPageIndex == 2
-                                                    ? theme.colorScheme.primary
+                                                    ? theme.colorScheme.onPrimary
                                                     : inactiveColor,
                                               ),
                                             ),
@@ -894,24 +743,19 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                       ),
                                     ),
                                   ),
-                                  // Third Divider
-                                  Container(
-                                    width: 1,
-                                    height: 18,
-                                    color: theme.colorScheme.primary.withOpacity(0.18),
-                                  ),
                                   // Right Tab (Correio)
                                   Expanded(
                                     child: GestureDetector(
                                       onTap: () => _navigateToPage(3),
                                       child: Container(
                                         height: double.infinity,
+                                        margin: EdgeInsets.zero,
                                         alignment: Alignment.center,
                                         decoration: BoxDecoration(
                                           color: _currentPageIndex == 3
-                                              ? theme.colorScheme.primary.withOpacity(0.12)
+                                              ? theme.colorScheme.primary
                                               : Colors.transparent,
-                                          borderRadius: const BorderRadius.horizontal(right: Radius.circular(23)),
+                                          borderRadius: BorderRadius.circular(24),
                                         ),
                                         child: Row(
                                           mainAxisAlignment: MainAxisAlignment.center,
@@ -920,7 +764,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                               Icons.mail_rounded,
                                               size: 16,
                                               color: _currentPageIndex == 3
-                                                  ? theme.colorScheme.primary
+                                                  ? theme.colorScheme.onPrimary
                                                   : inactiveColor,
                                             ),
                                             const SizedBox(width: 4),
@@ -930,7 +774,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                                 fontSize: 10,
                                                 fontWeight: FontWeight.bold,
                                                 color: _currentPageIndex == 3
-                                                    ? theme.colorScheme.primary
+                                                    ? theme.colorScheme.onPrimary
                                                     : inactiveColor,
                                               ),
                                             ),
@@ -971,10 +815,12 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                           },
                           decoration: InputDecoration(
                             hintText: _currentPageIndex == 0
-                                ? 'Explorar...'
+                                ? 'explorar!'
                                 : _currentPageIndex == 1
-                                    ? 'Buscar arquivo...'
-                                    : 'Explorar app...',
+                                    ? 'explorar memórias'
+                                    : _currentPageIndex == 2
+                                        ? 'explorar apps'
+                                        : 'explorar correio',
                             hintStyle: TextStyle(
                               color: isDark ? const Color(0xFFECEFF1).withOpacity(0.4) : Colors.black.withOpacity(0.35),
                             ),
@@ -998,7 +844,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                             contentPadding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 16.0),
                             border: OutlineInputBorder(
                               borderSide: BorderSide(
-                                color: theme.colorScheme.primary.withOpacity(0.18),
+                                color: theme.colorScheme.primary.withOpacity(0.1),
                                 width: 1,
                               ),
                               borderRadius: BorderRadius.circular(24),
@@ -1139,6 +985,100 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                   ),
                 ),
               ),
+
+             // ── Custom Swipe Sidebar ─────────────────────────────────────────
+             // Gesture detection area on the right edge
+             Positioned(
+               top: 0,
+               bottom: 0,
+               right: 0,
+               width: _sideBarWidth > 0 ? screenWidth : 60.0,
+               child: GestureDetector(
+                 behavior: HitTestBehavior.translucent,
+                 onHorizontalDragUpdate: (details) {
+                   if (_sideBarWidth == 0.0) {
+                     _loadMostUsedApps();
+                   }
+                   setState(() {
+                     _sideBarWidth = (_sideBarWidth - details.delta.dx).clamp(0.0, 280.0);
+                   });
+                 },
+                 onHorizontalDragEnd: (details) {
+                   final velocity = details.primaryVelocity ?? details.velocity.pixelsPerSecond.dx;
+                   if (velocity < -200) {
+                     // Fast swipe left = open further
+                     if (_sideBarWidth < 120) {
+                       setState(() => _sideBarWidth = 72.0);
+                     } else {
+                       setState(() => _sideBarWidth = 280.0);
+                     }
+                   } else if (velocity > 200) {
+                     // Fast swipe right = close down
+                     if (_sideBarWidth > 180) {
+                       setState(() => _sideBarWidth = 72.0);
+                     } else {
+                       setState(() => _sideBarWidth = 0.0);
+                     }
+                   } else {
+                     // Normal drag snap based on width
+                     if (_sideBarWidth < 45) {
+                       setState(() => _sideBarWidth = 0.0);
+                     } else if (_sideBarWidth < 160) {
+                       setState(() => _sideBarWidth = 72.0);
+                     } else {
+                       setState(() => _sideBarWidth = 280.0);
+                     }
+                   }
+                 },
+                 child: Stack(
+                   children: [
+                     // A transparent/translucent background overlay when open
+                     if (_sideBarWidth > 0)
+                       Positioned.fill(
+                         child: GestureDetector(
+                           onTap: () => setState(() => _sideBarWidth = 0.0),
+                           child: Container(
+                             color: Colors.black.withValues(alpha: 0.15 * (_sideBarWidth / 280.0)),
+                           ),
+                         ),
+                       ),
+                     // The actual sidebar content panel
+                     Positioned(
+                       top: 0,
+                       bottom: 0,
+                       right: 0,
+                       width: _sideBarWidth > 0 ? _sideBarWidth : 0.0,
+                       child: GestureDetector(
+                         onTap: () {}, // Prevent taps inside the sidebar content from closing it
+                         child: ClipRRect(
+                           borderRadius: const BorderRadius.horizontal(left: Radius.circular(28)),
+                           child: BackdropFilter(
+                             filter: ui.ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
+                             child: Container(
+                               decoration: BoxDecoration(
+                                 color: (isDark ? const Color(0xFF1C1C1E) : const Color(0xFFE5E5EA)).withOpacity(0.85),
+                                 borderRadius: const BorderRadius.horizontal(left: Radius.circular(28)),
+                                 border: Border(
+                                   left: BorderSide(
+                                     color: (isDark ? Colors.white : Colors.black).withOpacity(0.08),
+                                     width: 1.5,
+                                   ),
+                                 ),
+                               ),
+                               child: SafeArea(
+                                 child: _sideBarWidth < 120
+                                     ? _buildMiniSideBarContent(theme, isDark)
+                                     : _buildFullSideBarContent(theme, isDark),
+                               ),
+                             ),
+                           ),
+                         ),
+                       ),
+                     ),
+                   ],
+                 ),
+               ),
+             ),
           ],
         ),
       ),
@@ -1146,6 +1086,246 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
       ),
   );
 }
+
+  Widget _buildMiniSideBarContent(ThemeData theme, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Column(
+        children: [
+          // Drag handle indicator
+          Container(
+            width: 4,
+            height: 40,
+            margin: const EdgeInsets.only(bottom: 24),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withOpacity(0.4),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          // Mini App Icons
+          Expanded(
+            child: _mostUsedApps.isEmpty
+                ? Center(
+                    child: Icon(
+                      Icons.apps_rounded,
+                      color: theme.colorScheme.onSurface.withOpacity(0.2),
+                      size: 24,
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    itemCount: _mostUsedApps.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 16),
+                    physics: const BouncingScrollPhysics(),
+                    itemBuilder: (context, index) {
+                      final app = _mostUsedApps[index];
+                      return Center(
+                        child: Tooltip(
+                          message: app.label,
+                          child: InkWell(
+                            onTap: () async {
+                              setState(() => _sideBarWidth = 0.0);
+                              await AppsService.launchApp(app.packageName, app.className);
+                              _loadMostUsedApps();
+                            },
+                            borderRadius: BorderRadius.circular(14),
+                            child: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: (isDark ? Colors.white : Colors.black).withOpacity(0.04),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: theme.colorScheme.primary.withOpacity(0.1),
+                                  width: 1,
+                                ),
+                              ),
+                              child: FutureBuilder<Uint8List?>(
+                                future: AppsService.getAppIcon(app.packageName),
+                                builder: (context, snapshot) {
+                                  if (snapshot.hasData && snapshot.data != null) {
+                                    return ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Image.memory(
+                                        snapshot.data!,
+                                        width: 28,
+                                        height: 28,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    );
+                                  }
+                                  return Icon(
+                                    Icons.android_rounded,
+                                    size: 28,
+                                    color: theme.colorScheme.primary,
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          // Floating settings shortcut at the bottom
+          IconButton(
+            icon: Icon(
+              Icons.settings_rounded,
+              color: (isDark ? Colors.white : Colors.black).withOpacity(0.4),
+              size: 20,
+            ),
+            onPressed: () {
+              AppsService.launchApp('com.android.settings', '');
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFullSideBarContent(ThemeData theme, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 24.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.menu_open_rounded,
+                color: theme.colorScheme.primary,
+                size: 24,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Histórico Recente',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? const Color(0xFFFAFAFA) : Colors.black,
+                  ),
+                ),
+              ),
+              GestureDetector(
+                onTap: () => setState(() => _sideBarWidth = 0.0),
+                child: Icon(
+                  Icons.close_rounded,
+                  size: 20,
+                  color: (isDark ? Colors.white : Colors.black).withOpacity(0.35),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Divider(color: (isDark ? Colors.white : Colors.black).withOpacity(0.08)),
+          const SizedBox(height: 8),
+          Text(
+            'ÚLTIMOS APPS ABERTOS',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              color: theme.colorScheme.secondary,
+              letterSpacing: 0.8,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Expanded(
+            child: _mostUsedApps.isEmpty
+                ? Center(
+                    child: Text(
+                      'Nenhum aplicativo recente',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: theme.colorScheme.onSurface.withOpacity(0.4),
+                      ),
+                    ),
+                  )
+                : ListView.separated(
+                    padding: EdgeInsets.zero,
+                    itemCount: _mostUsedApps.length,
+                    separatorBuilder: (context, index) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final app = _mostUsedApps[index];
+                      return InkWell(
+                        onTap: () async {
+                          setState(() => _sideBarWidth = 0.0);
+                          await AppsService.launchApp(app.packageName, app.className);
+                          _loadMostUsedApps();
+                        },
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                          child: Row(
+                            children: [
+                              FutureBuilder<Uint8List?>(
+                                future: AppsService.getAppIcon(app.packageName),
+                                builder: (context, snapshot) {
+                                  if (snapshot.hasData && snapshot.data != null) {
+                                    return ClipRRect(
+                                      borderRadius: BorderRadius.circular(6),
+                                      child: Image.memory(
+                                        snapshot.data!,
+                                        width: 24,
+                                        height: 24,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    );
+                                  }
+                                  return Container(
+                                    width: 24,
+                                    height: 24,
+                                    decoration: BoxDecoration(
+                                      color: theme.colorScheme.primary.withOpacity(0.1),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(
+                                      Icons.android_rounded,
+                                      size: 14,
+                                      color: theme.colorScheme.primary,
+                                    ),
+                                  );
+                                },
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  app.label,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: isDark ? const Color(0xFFFAFAFA) : Colors.black,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              Icon(
+                                Icons.chevron_right_rounded,
+                                size: 16,
+                                color: (isDark ? Colors.white : Colors.black).withOpacity(0.3),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'PORTAL OS v1.0.4',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: (isDark ? Colors.white : Colors.black).withOpacity(0.3),
+              letterSpacing: 1.0,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
 Widget _buildSidebarItem(
   BuildContext context, {
@@ -1369,53 +1549,81 @@ Widget _buildSidebarItem(
 
 
   Widget _buildEarthFilterBar(ThemeData theme, bool isDark) {
+    final filters = [
+      {'name': 'Todos', 'value': 'Todos', 'icon': Icons.language_rounded},
+      {'name': 'Satélite', 'value': 'Satélite', 'icon': Icons.satellite_alt_rounded},
+      {'name': 'Clima', 'value': 'Clima', 'icon': Icons.cloud_rounded},
+      {'name': 'Vetor', 'value': 'Vetor (3D)', 'icon': Icons.grid_view_rounded},
+      {'name': 'Monit.', 'value': 'Monitoramento', 'icon': Icons.analytics_rounded},
+    ];
 
-    final filters = ['Todos', 'Satélite', 'Clima', 'Vetor (3D)'];
+    final Color inactiveColor = isDark
+        ? Colors.white.withOpacity(0.4)
+        : Colors.black.withOpacity(0.4);
+
     return ValueListenableBuilder<String>(
       valueListenable: VirtualTopography.earthFilterNotifier,
       builder: (context, currentFilter, child) {
         return Container(
-          height: 36,
+          width: double.infinity,
+          height: 48,
           margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: filters.length,
-            separatorBuilder: (context, index) => const SizedBox(width: 8),
-            itemBuilder: (context, index) {
-              final filterName = filters[index];
-              final isSelected = currentFilter == filterName;
-              return ChoiceChip(
-                label: Text(
-                  filterName,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: isSelected 
-                        ? theme.colorScheme.onPrimary 
-                        : theme.colorScheme.onSurface.withOpacity(0.8),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF070D09) : const Color(0xFFF4F7F5),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(
+              color: theme.colorScheme.primary.withOpacity(0.1),
+            ),
+          ),
+          child: Row(
+            children: filters.map((filter) {
+              final filterName = filter['name'] as String;
+              final filterValue = filter['value'] as String;
+              final filterIcon = filter['icon'] as IconData;
+              final isSelected = currentFilter == filterValue;
+
+              return Expanded(
+                child: GestureDetector(
+                  onTap: () {
+                    VirtualTopography.earthFilterNotifier.value = filterValue;
+                  },
+                  child: Container(
+                    height: double.infinity,
+                    margin: EdgeInsets.zero,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? theme.colorScheme.primary
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          filterIcon,
+                          size: 13,
+                          color: isSelected
+                              ? theme.colorScheme.onPrimary
+                              : inactiveColor,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          filterName,
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                            color: isSelected
+                                ? theme.colorScheme.onPrimary
+                                : inactiveColor,
+                      ),
+                    ),
+                      ],
+                    ),
                   ),
                 ),
-                selected: isSelected,
-                onSelected: (selected) {
-                  if (selected) {
-                    VirtualTopography.earthFilterNotifier.value = filterName;
-                  }
-                },
-                selectedColor: theme.colorScheme.primary,
-                backgroundColor: (isDark ? Colors.black : Colors.white).withOpacity(0.35),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(18),
-                  side: BorderSide(
-                    color: isSelected 
-                        ? theme.colorScheme.primary 
-                        : (isDark ? Colors.white : Colors.black).withOpacity(0.08),
-                    width: 1.0,
-                  ),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                showCheckmark: false,
               );
-            },
+            }).toList(),
           ),
         );
       },

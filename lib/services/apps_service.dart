@@ -89,9 +89,24 @@ class AppsService {
     } catch (_) {}
   }
 
+  static Future<void> _addToRecentApps(String packageName) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final recentsJson = prefs.getString('apps_recent_history') ?? '[]';
+      final List<dynamic> recents = List<dynamic>.from(jsonDecode(recentsJson));
+      recents.remove(packageName);
+      recents.insert(0, packageName);
+      if (recents.length > 10) {
+        recents.removeLast();
+      }
+      await prefs.setString('apps_recent_history', jsonEncode(recents));
+    } catch (_) {}
+  }
+
   /// Launches specified app using packageName and className.
   static Future<bool> launchApp(String packageName, String className) async {
     _incrementLaunchCount(packageName);
+    _addToRecentApps(packageName);
     if (!isAndroidNative) {
       print("Simulando lançamento do app: $packageName");
       return true;
@@ -129,6 +144,33 @@ class AppsService {
       return launched.take(8).toList();
     } catch (_) {
       return allApps.take(8).toList();
+    }
+  }
+
+  /// Returns a chronological list of recent apps.
+  static Future<List<AppInfo>> getRecentApps(List<AppInfo> allApps) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final recentsJson = prefs.getString('apps_recent_history') ?? '[]';
+      final List<dynamic> recents = List<dynamic>.from(jsonDecode(recentsJson));
+      
+      final List<AppInfo> result = [];
+      for (final package in recents) {
+        final app = allApps.firstWhere(
+          (a) => a.packageName == package,
+          orElse: () => AppInfo(label: '', packageName: '', className: ''),
+        );
+        if (app.packageName.isNotEmpty) {
+          result.add(app);
+        }
+      }
+      
+      if (result.isEmpty) {
+        return getMostUsedApps(allApps);
+      }
+      return result;
+    } catch (_) {
+      return getMostUsedApps(allApps);
     }
   }
 }

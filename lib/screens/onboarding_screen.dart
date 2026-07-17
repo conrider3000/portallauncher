@@ -1,4 +1,3 @@
-import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../services/launcher_service.dart';
 import '../theme/tropical_theme.dart';
@@ -14,47 +13,20 @@ class OnboardingScreen extends StatefulWidget {
 }
 
 class _OnboardingScreenState extends State<OnboardingScreen>
-    with TickerProviderStateMixin, WidgetsBindingObserver {
-  late AnimationController _portalRotationController;
-  late AnimationController _transitionController;
-  late Animation<double> _portalScaleAnimation;
-
+    with WidgetsBindingObserver {
   bool _isChecking = false;
   bool _lgpdAccepted = false;
-  bool _isTransitioning = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-
-    // Continuous rotation of the portal
-    _portalRotationController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 12),
-    )..repeat();
-
-    // Zoom-in transition animation when role is granted
-    _transitionController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    );
-
-    _portalScaleAnimation = Tween<double>(begin: 1.0, end: 15.0).animate(
-      CurvedAnimation(
-        parent: _transitionController,
-        curve: Curves.easeInCirc,
-      ),
-    );
-
     _checkDefaultLauncher();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _portalRotationController.dispose();
-    _transitionController.dispose();
     super.dispose();
   }
 
@@ -66,27 +38,17 @@ class _OnboardingScreenState extends State<OnboardingScreen>
   }
 
   Future<void> _checkDefaultLauncher() async {
-    if (_isChecking || _isTransitioning) return;
+    if (_isChecking) return;
     setState(() => _isChecking = true);
 
     final isDefault = await LauncherService.isDefaultHome();
     if (isDefault) {
-      // Trigger portal entry zoom animation
-      _enterWorkspace();
+      widget.onSetupComplete();
     } else {
       if (mounted) {
         setState(() => _isChecking = false);
       }
     }
-  }
-
-  void _enterWorkspace() {
-    setState(() {
-      _isTransitioning = true;
-    });
-    _transitionController.forward().then((_) {
-      widget.onSetupComplete();
-    });
   }
 
   void _triggerSetup() async {
@@ -102,6 +64,93 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     await LauncherService.requestDefaultHome();
   }
 
+  void _showPrivacyPolicySheet() {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: isDark ? const Color(0xFF1C1C1E) : Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      isScrollControlled: true,
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(
+            top: 20,
+            left: 24,
+            right: 24,
+            bottom: MediaQuery.of(context).viewInsets.bottom + 24,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white24 : Colors.black12,
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Termos e Privacidade da LGPD',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Text(
+                    '1. Armazenamento Local de Dados:\n'
+                    'Todos os dados coletados pelo Portal Launcher, incluindo histórico de buscas, uso de aplicativos recentes, telemetria básica do sistema e posições de geolocalização no globo virtual 3D, são salvos de forma estritamente local nas preferências do aplicativo no seu dispositivo (SharedPreferences/SQLite).\n\n'
+                    '2. Ausência de Envio em Nuvem:\n'
+                    'Este aplicativo não possui banco de dados em nuvem próprio nem compartilha qualquer data pessoal identificável com terceiros ou com a equipe de desenvolvimento. Cumprimos rigorosamente a LGPD (Lei Geral de Proteção de Dados).\n\n'
+                    '3. Permissões de Localização e Arquivos:\n'
+                    'As permissões de Localização (GPS) servem apenas para plotar sua posição no globo 3D e atualizar as condições climáticas de Curitiba ou da sua região atual. A permissão de armazenamento/arquivos é opcional e serve exclusivamente para gerenciar as mídias da aba "Memória".\n\n'
+                    '4. Consentimento e Revogação:\n'
+                    'Ao prosseguir, você concorda com o processamento local desses dados. É possível revogar as permissões nas configurações do Android a qualquer momento.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurface.withOpacity(0.7),
+                      height: 1.5,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: theme.colorScheme.primary,
+                    foregroundColor: theme.colorScheme.onPrimary,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    elevation: 0,
+                  ),
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text(
+                    'Entendi',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -111,14 +160,13 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       backgroundColor: isDark ? Colors.black : Colors.white,
       body: Stack(
         children: [
-          // Background layout
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
+              padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 20.0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 40),
                   Text(
                     'PORTAL',
                     style: theme.textTheme.headlineLarge?.copyWith(
@@ -136,20 +184,12 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                   ),
                   const Spacer(),
 
-                  // Multi-art rotating Portal widget
-                  AnimatedBuilder(
-                    animation: _portalScaleAnimation,
-                    builder: (context, child) {
-                      return Transform.scale(
-                        scale: _portalScaleAnimation.value,
-                        child: _buildRotatingPortal(isDark),
-                      );
-                    },
-                  ),
+                  // Super minimalist outline Portal symbol
+                  _buildMinimalistPortal(theme, isDark),
 
                   const Spacer(),
 
-                  // Terms & LGPD section
+                  // Terms & LGPD Section with Policy Link
                   Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
@@ -173,28 +213,40 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                               activeColor: theme.colorScheme.primary,
                             ),
                             Expanded(
-                              child: Text(
-                                'Aceito os termos da LGPD e autorizo o processamento local de dados do dispositivo.',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurface.withOpacity(0.8),
+                              child: GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _lgpdAccepted = !_lgpdAccepted;
+                                  });
+                                },
+                                child: Text(
+                                  'Aceito os termos da LGPD e autorizo o processamento local de dados do dispositivo.',
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurface.withOpacity(0.8),
+                                    fontSize: 11,
+                                  ),
                                 ),
                               ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 8),
-                        Text(
-                          'Para acessar seu celular eficientemente e sem anúncios, este launcher precisa ser definido como o App de início principal nas configurações.',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurface.withOpacity(0.5),
-                            fontSize: 10,
+                        GestureDetector(
+                          onTap: _showPrivacyPolicySheet,
+                          child: Text(
+                            'Ver Termos e Privacidade',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: theme.colorScheme.primary,
+                              decoration: TextDecoration.underline,
+                            ),
                           ),
-                          textAlign: TextAlign.center,
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
 
                   // Step-by-step tutorial card
                   Container(
@@ -231,8 +283,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                         const SizedBox(height: 6),
                         Text(
                           '1. Toque no botão principal abaixo para abrir as opções.\n'
-                          '2. Se o sistema não perguntar, configure manualmente em:\n'
-                          '   Configurações ➔ Aplicativos ➔ Escolher aplicativos padrão ➔ Aplicativo de início ➔ Selecione "Portal".',
+                          '2. Escolha o "Portal" como seu app de início padrão nas configurações do sistema.',
                           style: TextStyle(
                             fontSize: 11,
                             height: 1.4,
@@ -243,9 +294,9 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                     ),
                   ),
 
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 24),
 
-                  // Accept and Setup Button
+                  // Setup button
                   ElevatedButton(
                     onPressed: _triggerSetup,
                     style: ElevatedButton.styleFrom(
@@ -286,7 +337,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
 
                   const SizedBox(height: 12),
 
-                  // Secondary bypass button
+                  // Bypass button
                   TextButton(
                     onPressed: () {
                       if (!_lgpdAccepted) {
@@ -298,7 +349,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                         );
                         return;
                       }
-                      _enterWorkspace();
+                      widget.onSetupComplete();
                     },
                     child: Text(
                       'Entrar no Portal (Definir depois)',
@@ -315,13 +366,13 @@ class _OnboardingScreenState extends State<OnboardingScreen>
             ),
           ),
 
-          // Bypass onboarding debug button (on Top Right)
+          // Bypass debug button on desktop
           if (!isAndroidNative)
             Positioned(
               top: 40,
               right: 16,
               child: TextButton.icon(
-                onPressed: _enterWorkspace,
+                onPressed: widget.onSetupComplete,
                 icon: const Icon(Icons.skip_next_rounded),
                 label: const Text('Bypass (Dev)'),
               ),
@@ -331,84 +382,34 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     );
   }
 
-  Widget _buildRotatingPortal(bool isDark) {
-    // A layered gradient portal where layers rotate in opposite directions
+  Widget _buildMinimalistPortal(ThemeData theme, bool isDark) {
     return Container(
-      width: 180,
-      height: 180,
-      decoration: const BoxDecoration(
+      width: 150,
+      height: 150,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
         shape: BoxShape.circle,
+        border: Border.all(
+          color: theme.colorScheme.primary.withOpacity(0.25),
+          width: 1.5,
+        ),
       ),
-      child: Stack(
+      child: Container(
+        width: 90,
+        height: 90,
         alignment: Alignment.center,
-        children: [
-          // Layer 1: Clockwise Outer Portal
-          AnimatedBuilder(
-            animation: _portalRotationController,
-            builder: (context, child) {
-              return Transform.rotate(
-                angle: _portalRotationController.value * 2 * math.pi,
-                child: Container(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: SweepGradient(
-                      colors: [
-                        const Color(0xFF007AFF).withOpacity(0.8), // Apple Blue
-                        const Color(0xFFAF52DE).withOpacity(0.8), // Siri Purple
-                        const Color(0xFF30B0C7).withOpacity(0.8), // Apple Teal
-                        const Color(0xFF007AFF).withOpacity(0.8),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: theme.colorScheme.primary.withOpacity(0.12),
+            width: 1.0,
           ),
-          // Layer 2: Counter-Clockwise Inner Portal
-          AnimatedBuilder(
-            animation: _portalRotationController,
-            builder: (context, child) {
-              return Transform.rotate(
-                angle: -_portalRotationController.value * 4 * math.pi,
-                child: Container(
-                  margin: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: SweepGradient(
-                      colors: [
-                        const Color(0xFF34C759).withOpacity(0.7), // Apple Emerald
-                        const Color(0xFF007AFF).withOpacity(0.4),
-                        const Color(0xFFAF52DE).withOpacity(0.7), // Siri Purple
-                        const Color(0xFF34C759).withOpacity(0.7),
-                      ],
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
-          // Layer 3: Central core
-          Container(
-            width: 120,
-            height: 120,
-            decoration: BoxDecoration(
-              color: isDark ? Colors.black : Colors.white,
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(
-                  color: (isDark ? const Color(0xFF007AFF) : Colors.black).withOpacity(0.12),
-                  blurRadius: 16,
-                  spreadRadius: 2,
-                ),
-              ],
-            ),
-            child: const Icon(
-              Icons.blur_circular_rounded,
-              size: 40,
-              color: Color(0xFF007AFF),
-            ),
-          ),
-        ],
+        ),
+        child: Icon(
+          Icons.blur_on_rounded,
+          size: 32,
+          color: theme.colorScheme.primary.withOpacity(0.8),
+        ),
       ),
     );
   }

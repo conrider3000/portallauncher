@@ -1,10 +1,8 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'screens/intro_screen.dart';
 import 'screens/launcher_screen.dart';
 import 'screens/onboarding_screen.dart';
-import 'services/launcher_service.dart';
 import 'theme/tropical_theme.dart';
 import 'utils/platform_helper.dart';
 import 'utils/theme_manager.dart';
@@ -25,8 +23,7 @@ class PortalApp extends StatefulWidget {
 }
 
 class _PortalAppState extends State<PortalApp> {
-  bool _isDefaultLauncher = false;
-  bool _showIntro = true;
+  bool _showOnboarding = true;
   bool _isLoading = true;
 
   @override
@@ -39,42 +36,28 @@ class _PortalAppState extends State<PortalApp> {
     // Load theme preference on startup
     await ThemeManager.loadTheme();
 
-    // 1. Check if first launch
     try {
       final prefs = await SharedPreferences.getInstance();
       final launched = prefs.getBool('portal_launched') ?? false;
-      if (launched) {
-        _showIntro = false;
-      }
+      _showOnboarding = !launched;
     } catch (_) {
-      _showIntro = false; // fallback
+      _showOnboarding = true;
     }
 
-    // 2. Non-Android platforms bypass launcher check
-    if (!isAndroidNative) {
-      setState(() {
-        _isDefaultLauncher = true;
-        _isLoading = false;
-      });
-      return;
-    }
-
-    // 3. Check default launcher status (Android only)
-    final isDefault = await LauncherService.isDefaultHome();
     setState(() {
-      _isDefaultLauncher = isDefault;
       _isLoading = false;
     });
   }
 
-  Future<void> _markIntroComplete() async {
+  Future<void> _completeOnboarding() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('portal_launched', true);
+      await prefs.setBool('portal_lgpd_accepted', true);
     } catch (_) {}
 
     setState(() {
-      _showIntro = false;
+      _showOnboarding = false;
     });
   }
 
@@ -95,22 +78,6 @@ class _PortalAppState extends State<PortalApp> {
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: ThemeManager.themeModeNotifier,
       builder: (context, currentThemeMode, child) {
-        // If first launch, run the geometric 3D animation
-        if (_showIntro) {
-          return MaterialApp(
-            title: 'Portal',
-            debugShowCheckedModeBanner: false,
-            theme: TropicalTheme.light,
-            darkTheme: TropicalTheme.dark,
-            themeMode: currentThemeMode,
-            home: DesktopPhoneFrame(
-              child: IntroScreen(
-                onFinish: _markIntroComplete,
-              ),
-            ),
-          );
-        }
-
         return MaterialApp(
           title: 'Portal',
           debugShowCheckedModeBanner: false,
@@ -118,15 +85,11 @@ class _PortalAppState extends State<PortalApp> {
           darkTheme: TropicalTheme.dark,
           themeMode: currentThemeMode,
           home: DesktopPhoneFrame(
-            child: _isDefaultLauncher
-                ? const LauncherScreen()
-                : OnboardingScreen(
-                    onSetupComplete: () {
-                      setState(() {
-                        _isDefaultLauncher = true;
-                      });
-                    },
-                  ),
+            child: _showOnboarding
+                ? OnboardingScreen(
+                    onSetupComplete: _completeOnboarding,
+                  )
+                : const LauncherScreen(),
           ),
         );
       },
