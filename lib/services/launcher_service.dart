@@ -117,4 +117,43 @@ class LauncherService {
       await _channel.invokeMethod('openNfcSettings');
     } catch (_) {}
   }
+
+  /// Toggles system Flashlight/Torch.
+  static Future<void> toggleFlashlight(bool enabled) async {
+    try {
+      await _channel.invokeMethod('toggleFlashlight', {'enabled': enabled});
+    } catch (_) {}
+  }
+
+  /// Opens Android location settings.
+  static Future<void> openLocationSettings() async {
+    try {
+      await _channel.invokeMethod('openLocationSettings');
+    } catch (_) {}
+  }
+
+  /// Opens the system camera application.
+  static Future<void> openCameraApp() async {
+    try {
+      await _channel.invokeMethod('openCameraApp');
+    } catch (_) {}
+  }
+
+  /// Checks if system auto-rotation is enabled.
+  static Future<bool> isAutoRotationEnabled() async {
+    try {
+      return await _channel.invokeMethod('isAutoRotationEnabled') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Toggles system auto-rotation settings.
+  static Future<bool> setAutoRotationEnabled(bool enabled) async {
+    try {
+      return await _channel.invokeMethod('setAutoRotationEnabled', {'enabled': enabled}) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
 }

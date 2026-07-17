@@ -18,7 +18,8 @@ class LauncherScreen extends StatefulWidget {
   State<LauncherScreen> createState() => _LauncherScreenState();
 }
 
-class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObserver {
+class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObserver, TickerProviderStateMixin {
+  late AnimationController _filterBarController;
   final PageController _pageController = PageController();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   int _currentPageIndex = 0;
@@ -31,6 +32,9 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
   bool _searchOverlayOpen = false;
   double _lastPointerDownX = 0.0;
   double _sideBarWidth = 0.0;
+  double _leftBarWidth = 0.0;
+  bool _flashlightEnabled = false;
+  bool _autoRotationEnabled = false;
 
   // For unified app search inside the overlay
   List<AppInfo> _allApps = [];
@@ -100,6 +104,23 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
     }
   }
 
+  Future<void> _loadInitialStates() async {
+    final rot = await LauncherService.isAutoRotationEnabled();
+    if (mounted) {
+      setState(() {
+        _autoRotationEnabled = rot;
+      });
+    }
+  }
+
+  void _onPanelOpenChanged() {
+    if (ContextHeader.isPanelOpenNotifier.value) {
+      _filterBarController.reverse();
+    } else {
+      _filterBarController.forward();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -108,6 +129,14 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: [SystemUiOverlay.bottom]);
     _loadAppsForOverlay();
     _loadHardwareInfo();
+    _loadInitialStates();
+
+    _filterBarController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 500),
+      value: 1.0, // Initially visible
+    );
+    ContextHeader.isPanelOpenNotifier.addListener(_onPanelOpenChanged);
 
     // Listen to Home button / swipe-up gesture from Android
     const MethodChannel('com.portal/launcher_setup').setMethodCallHandler((call) async {
@@ -136,6 +165,8 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    ContextHeader.isPanelOpenNotifier.removeListener(_onPanelOpenChanged);
+    _filterBarController.dispose();
     _pageController.dispose();
     _searchController.dispose();
     _overlaySearchController.dispose();
@@ -167,9 +198,8 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
       _searchOverlayOpen = false;
       _overlayFilteredApps = [];
       _sideBarWidth = 0.0;
+      _leftBarWidth = 0.0;
     });
-    // Close climate/time space panel on page change
-    ContextHeader.isPanelOpenNotifier.value = false;
 
     _searchController.clear();
     _overlaySearchController.clear();
@@ -218,6 +248,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final screenWidth = MediaQuery.of(context).size.width;
+    final maxBarWidth = screenWidth * 0.5;
 
     return Listener(
       onPointerDown: (PointerDownEvent event) {
@@ -227,8 +258,8 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
         canPop: false,
         onPopInvokedWithResult: (didPop, result) {
           if (didPop) return;
-          if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
-            _scaffoldKey.currentState?.closeDrawer();
+          if (_leftBarWidth > 0.0) {
+            setState(() => _leftBarWidth = 0.0);
           } else if (_sideBarWidth > 0.0) {
             setState(() => _sideBarWidth = 0.0);
           } else if (_currentPageIndex > 0) {
@@ -240,7 +271,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                 _loadMostUsedApps();
                 setState(() => _sideBarWidth = 72.0);
               } else {
-                _scaffoldKey.currentState?.openDrawer();
+                setState(() => _leftBarWidth = 72.0);
               }
             });
           }
@@ -486,16 +517,35 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
 
                   // Filter bar (shown only on Home when panel closed)
                   if (_currentPageIndex == 0)
-                    ValueListenableBuilder<bool>(
-                      valueListenable: ContextHeader.isPanelOpenNotifier,
-                      builder: (context, isPanelOpen, child) {
-                        return AnimatedSize(
-                          duration: const Duration(milliseconds: 200),
-                          child: isPanelOpen
-                              ? const SizedBox.shrink()
-                              : _buildEarthFilterBar(theme, isDark),
+                    AnimatedBuilder(
+                      animation: _filterBarController,
+                      builder: (context, child) {
+                        if (_filterBarController.value == 0.0 && ContextHeader.isPanelOpenNotifier.value) {
+                          return const SizedBox.shrink();
+                        }
+                        
+                        final Offset offset;
+                        if (!ContextHeader.isPanelOpenNotifier.value) {
+                          // Entry: Slide from left (-1.0) to center (0.0)
+                          final double progress = Curves.easeOutCubic.transform(_filterBarController.value);
+                          offset = Offset(progress - 1.0, 0.0);
+                        } else {
+                          // Exit: Slide from center (0.0) to right (1.0)
+                          final double progress = Curves.easeInCubic.transform(1.0 - _filterBarController.value);
+                          offset = Offset(progress, 0.0);
+                        }
+                        
+                        return ClipRect(
+                          child: FadeTransition(
+                            opacity: _filterBarController,
+                            child: FractionalTranslation(
+                              translation: offset,
+                              child: child!,
+                            ),
+                          ),
                         );
                       },
+                      child: _buildEarthFilterBar(theme, isDark),
                     ),
 
                   // Warning banner if Portal is not the default launcher
@@ -814,6 +864,19 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                             }
                           },
                           decoration: InputDecoration(
+                            prefixIcon: GestureDetector(
+                              onTap: () async {
+                                try {
+                                  await LauncherService.openCameraApp();
+                                } catch (e) {
+                                  debugPrint('Erro ao abrir a câmera: $e');
+                                }
+                              },
+                              child: Icon(
+                                Icons.remove_red_eye_rounded,
+                                color: theme.colorScheme.primary.withOpacity(0.7),
+                              ),
+                            ),
                             hintText: _currentPageIndex == 0
                                 ? 'explorar!'
                                 : _currentPageIndex == 1
@@ -986,6 +1049,94 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                 ),
               ),
 
+             // ── Custom Left Swipe Sidebar (Sensors & Radios) ─────────────────
+             Positioned(
+               top: 0,
+               bottom: 0,
+               left: 0,
+               width: _leftBarWidth > 0 ? screenWidth : 60.0,
+               child: GestureDetector(
+                 behavior: HitTestBehavior.translucent,
+                  onHorizontalDragUpdate: (details) {
+                    setState(() {
+                      _leftBarWidth = (_leftBarWidth + details.delta.dx).clamp(0.0, maxBarWidth);
+                    });
+                  },
+                  onHorizontalDragEnd: (details) {
+                    final velocity = details.primaryVelocity ?? details.velocity.pixelsPerSecond.dx;
+                    if (velocity > 200) {
+                      // Swipe right = open
+                      if (_leftBarWidth < 120) {
+                        setState(() => _leftBarWidth = 72.0);
+                      } else {
+                        setState(() => _leftBarWidth = maxBarWidth);
+                      }
+                    } else if (velocity < -200) {
+                      // Swipe left = close
+                      if (_leftBarWidth > (72.0 + maxBarWidth) / 2) {
+                        setState(() => _leftBarWidth = 72.0);
+                      } else {
+                        setState(() => _leftBarWidth = 0.0);
+                      }
+                    } else {
+                      // Snap based on width
+                      if (_leftBarWidth < 45) {
+                        setState(() => _leftBarWidth = 0.0);
+                      } else if (_leftBarWidth < (72.0 + maxBarWidth) / 2) {
+                        setState(() => _leftBarWidth = 72.0);
+                      } else {
+                        setState(() => _leftBarWidth = maxBarWidth);
+                      }
+                    }
+                  },
+                 child: Stack(
+                   children: [
+                     if (_leftBarWidth > 0)
+                       Positioned.fill(
+                         child: GestureDetector(
+                           onTap: () => setState(() => _leftBarWidth = 0.0),
+                           child: Container(
+                              color: Colors.black.withValues(alpha: 0.15 * (_leftBarWidth / maxBarWidth)),
+                           ),
+                         ),
+                       ),
+                     Positioned(
+                       top: 0,
+                       bottom: 0,
+                       left: 0,
+                       width: _leftBarWidth > 0 ? _leftBarWidth : 0.0,
+                       child: GestureDetector(
+                         onTap: () {},
+                         child: ClipRRect(
+                           borderRadius: const BorderRadius.horizontal(right: Radius.circular(28)),
+                           child: BackdropFilter(
+                             filter: ui.ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
+                             child: Container(
+                               decoration: BoxDecoration(
+                                 color: (isDark ? const Color(0xFF1C1C1E) : const Color(0xFFE5E5EA)).withOpacity(0.85),
+                                 borderRadius: const BorderRadius.horizontal(right: Radius.circular(28)),
+                                 border: Border(
+                                   right: BorderSide(
+                                     color: (isDark ? Colors.white : Colors.black).withOpacity(0.08),
+                                     width: 1.5,
+                                   ),
+                                 ),
+                               ),
+                               child: SafeArea(
+                                 child: _leftBarWidth < 120
+                                     ? _buildMiniLeftBarContent(theme, isDark)
+                                     : _buildFullLeftBarContent(theme, isDark),
+                               ),
+                             ),
+                           ),
+                         ),
+                       ),
+                     ),
+                   ],
+                 ),
+               ),
+             ),
+
              // ── Custom Swipe Sidebar ─────────────────────────────────────────
              // Gesture detection area on the right edge
              Positioned(
@@ -1000,7 +1151,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                      _loadMostUsedApps();
                    }
                    setState(() {
-                     _sideBarWidth = (_sideBarWidth - details.delta.dx).clamp(0.0, 280.0);
+                     _sideBarWidth = (_sideBarWidth - details.delta.dx).clamp(0.0, maxBarWidth);
                    });
                  },
                  onHorizontalDragEnd: (details) {
@@ -1010,11 +1161,11 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                      if (_sideBarWidth < 120) {
                        setState(() => _sideBarWidth = 72.0);
                      } else {
-                       setState(() => _sideBarWidth = 280.0);
+                       setState(() => _sideBarWidth = maxBarWidth);
                      }
                    } else if (velocity > 200) {
                      // Fast swipe right = close down
-                     if (_sideBarWidth > 180) {
+                     if (_sideBarWidth > (72.0 + maxBarWidth) / 2) {
                        setState(() => _sideBarWidth = 72.0);
                      } else {
                        setState(() => _sideBarWidth = 0.0);
@@ -1023,10 +1174,10 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                      // Normal drag snap based on width
                      if (_sideBarWidth < 45) {
                        setState(() => _sideBarWidth = 0.0);
-                     } else if (_sideBarWidth < 160) {
+                     } else if (_sideBarWidth < (72.0 + maxBarWidth) / 2) {
                        setState(() => _sideBarWidth = 72.0);
                      } else {
-                       setState(() => _sideBarWidth = 280.0);
+                       setState(() => _sideBarWidth = maxBarWidth);
                      }
                    }
                  },
@@ -1038,7 +1189,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                          child: GestureDetector(
                            onTap: () => setState(() => _sideBarWidth = 0.0),
                            child: Container(
-                             color: Colors.black.withValues(alpha: 0.15 * (_sideBarWidth / 280.0)),
+                              color: Colors.black.withValues(alpha: 0.15 * (_sideBarWidth / maxBarWidth)),
                            ),
                          ),
                        ),
@@ -1177,6 +1328,393 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
             onPressed: () {
               AppsService.launchApp('com.android.settings', '');
             },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMiniLeftBarContent(ThemeData theme, bool isDark) {
+    final wifiEnabled = _hardwareInfo['wifi']?['enabled'] == true;
+    final bluetoothEnabled = _hardwareInfo['bluetooth']?['enabled'] == true;
+    final cellularEnabled = _hardwareInfo['cellular']?['available'] == true;
+    final nfcEnabled = _hardwareInfo['nfc']?['enabled'] == true;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Column(
+        children: [
+          // Drag handle indicator
+          Container(
+            width: 4,
+            height: 40,
+            margin: const EdgeInsets.only(bottom: 24),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withOpacity(0.4),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          
+          // Wi-Fi Button
+          _buildMiniSensorToggle(
+            icon: wifiEnabled ? Icons.wifi_rounded : Icons.wifi_off_rounded,
+            enabled: wifiEnabled,
+            tooltip: 'Wi-Fi: ${wifiEnabled ? "Ativo" : "Inativo"}',
+            theme: theme,
+            isDark: isDark,
+            onTap: () async {
+              await LauncherService.toggleWifi(!wifiEnabled);
+              Future.delayed(const Duration(milliseconds: 1200), () {
+                _loadHardwareInfo();
+              });
+            },
+          ),
+          const SizedBox(height: 16),
+
+          // Bluetooth Button
+          _buildMiniSensorToggle(
+            icon: bluetoothEnabled ? Icons.bluetooth_rounded : Icons.bluetooth_disabled_rounded,
+            enabled: bluetoothEnabled,
+            tooltip: 'Bluetooth: ${bluetoothEnabled ? "Ativo" : "Inativo"}',
+            theme: theme,
+            isDark: isDark,
+            onTap: () async {
+              await LauncherService.toggleBluetooth(!bluetoothEnabled);
+              Future.delayed(const Duration(milliseconds: 1200), () {
+                _loadHardwareInfo();
+              });
+            },
+          ),
+          const SizedBox(height: 16),
+
+          // Cellular Button
+          _buildMiniSensorToggle(
+            icon: Icons.signal_cellular_alt_rounded,
+            enabled: cellularEnabled,
+            tooltip: 'Celular',
+            theme: theme,
+            isDark: isDark,
+            onTap: () async {
+              await LauncherService.toggleCellular();
+            },
+          ),
+          const SizedBox(height: 16),
+
+          // NFC Button
+          _buildMiniSensorToggle(
+            icon: Icons.nfc_rounded,
+            enabled: nfcEnabled,
+            tooltip: 'NFC',
+            theme: theme,
+            isDark: isDark,
+            onTap: () async {
+              await LauncherService.openNfcSettings();
+            },
+          ),
+          const SizedBox(height: 16),
+
+          // Flashlight Button
+          _buildMiniSensorToggle(
+            icon: _flashlightEnabled ? Icons.flashlight_on_rounded : Icons.flashlight_off_rounded,
+            enabled: _flashlightEnabled,
+            tooltip: 'Lanterna: ${_flashlightEnabled ? "Ativa" : "Inativa"}',
+            theme: theme,
+            isDark: isDark,
+            onTap: () async {
+              final newMode = !_flashlightEnabled;
+              await LauncherService.toggleFlashlight(newMode);
+              setState(() {
+                _flashlightEnabled = newMode;
+              });
+            },
+          ),
+          const SizedBox(height: 16),
+
+          // Auto-Rotation Lock Button
+          _buildMiniSensorToggle(
+            icon: _autoRotationEnabled ? Icons.screen_rotation_rounded : Icons.screen_lock_rotation_rounded,
+            enabled: _autoRotationEnabled,
+            tooltip: 'Rotação da Tela: ${_autoRotationEnabled ? "Auto" : "Bloqueada"}',
+            theme: theme,
+            isDark: isDark,
+            onTap: () async {
+              final newMode = !_autoRotationEnabled;
+              final success = await LauncherService.setAutoRotationEnabled(newMode);
+              if (success) {
+                setState(() {
+                  _autoRotationEnabled = newMode;
+                });
+              } else {
+                Future.delayed(const Duration(seconds: 4), () async {
+                  final rot = await LauncherService.isAutoRotationEnabled();
+                  setState(() {
+                    _autoRotationEnabled = rot;
+                  });
+                });
+              }
+            },
+          ),
+          const SizedBox(height: 16),
+
+          const Spacer(),
+
+          // Sensors Button to expand full list
+          _buildMiniSensorToggle(
+            icon: Icons.sensors_rounded,
+            enabled: true,
+            tooltip: 'Ver todos os sensores',
+            theme: theme,
+            isDark: isDark,
+            onTap: () {
+              setState(() {
+                _leftBarWidth = MediaQuery.of(context).size.width * 0.5;
+              });
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMiniSensorToggle({
+    required IconData icon,
+    required bool enabled,
+    required String tooltip,
+    required ThemeData theme,
+    required bool isDark,
+    required VoidCallback onTap,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: enabled 
+                ? theme.colorScheme.primary.withOpacity(0.12)
+                : (isDark ? Colors.white : Colors.black).withOpacity(0.04),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: enabled
+                  ? theme.colorScheme.primary.withOpacity(0.3)
+                  : theme.colorScheme.primary.withOpacity(0.1),
+              width: 1,
+            ),
+          ),
+          child: Center(
+            child: Icon(
+              icon,
+              size: 20,
+              color: enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface.withOpacity(0.4),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFullLeftBarContent(ThemeData theme, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.sensors_rounded,
+                color: theme.colorScheme.primary,
+                size: 24,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Painel de Sensores',
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                    color: theme.colorScheme.primary,
+                    letterSpacing: -0.5,
+                  ),
+                ),
+              ),
+              if (!_loadingHardware)
+                IconButton(
+                  icon: Icon(Icons.refresh_rounded, size: 18, color: theme.colorScheme.primary.withOpacity(0.6)),
+                  constraints: const BoxConstraints(),
+                  padding: EdgeInsets.zero,
+                  onPressed: () {
+                    setState(() => _loadingHardware = true);
+                    _loadHardwareInfo();
+                  },
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Divider(color: theme.colorScheme.primary.withOpacity(0.15)),
+          
+          Expanded(
+            child: _loadingHardware
+                ? Center(
+                    child: CircularProgressIndicator(
+                      color: theme.colorScheme.primary,
+                      strokeWidth: 2,
+                    ),
+                  )
+                : ListView(
+                    physics: const BouncingScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    children: [
+                      _buildSectionTitle('RÁDIOS & COMUNICAÇÃO', theme),
+                      _buildWifiTile(theme, isDark),
+                      _buildRadioTile(
+                        'Bluetooth', 
+                        _hardwareInfo['bluetooth'] ?? {}, 
+                        Icons.bluetooth_rounded, 
+                        theme, 
+                        isDark,
+                        onToggle: (val) async {
+                          await LauncherService.toggleBluetooth(val);
+                          Future.delayed(const Duration(milliseconds: 1200), () {
+                            _loadHardwareInfo();
+                          });
+                        },
+                      ),
+                      _buildRadioTile(
+                        'Antena 4G / Celular', 
+                        {
+                          'available': _hardwareInfo['cellular']?['available'] == true,
+                          'enabled': _hardwareInfo['cellular']?['available'] == true,
+                          'state': _hardwareInfo['cellular']?['type'] ?? 'OFFLINE',
+                          'subtitle': 'Operadora: ${_hardwareInfo['cellular']?['operator'] ?? "Sem Sinal"}',
+                        }, 
+                        Icons.signal_cellular_alt_rounded, 
+                        theme, 
+                        isDark,
+                        onToggle: (val) async {
+                          await LauncherService.toggleCellular();
+                        },
+                      ),
+                      _buildRadioTile(
+                        'Receptor de Rádio FM', 
+                        {
+                          'available': _hardwareInfo['radio']?['available'] == true,
+                          'enabled': _fmRadioSimEnabled,
+                          'state': _fmRadioSimEnabled ? 'ATIVO' : 'DESATIVADO',
+                          'subtitle': _hardwareInfo['radio']?['state'] ?? 'Receptor de frequência analógica',
+                        }, 
+                        Icons.radio_rounded, 
+                        theme, 
+                        isDark,
+                        onToggle: (val) {
+                          setState(() {
+                            _fmRadioSimEnabled = val;
+                          });
+                        },
+                      ),
+                      _buildRadioTile(
+                        'NFC (Near Field)', 
+                        _hardwareInfo['nfc'] ?? {}, 
+                        Icons.nfc_rounded, 
+                        theme, 
+                        isDark,
+                        onToggle: (val) async {
+                          await LauncherService.openNfcSettings();
+                        },
+                      ),
+                      _buildRadioTile(
+                        'Lanterna Traseira', 
+                        {
+                          'available': true,
+                          'enabled': _flashlightEnabled,
+                          'state': _flashlightEnabled ? 'LIGADA' : 'DESLIGADA',
+                          'subtitle': 'Controle do LED físico da lanterna do celular',
+                        }, 
+                        Icons.flashlight_on_rounded, 
+                        theme, 
+                        isDark,
+                        onToggle: (val) async {
+                          await LauncherService.toggleFlashlight(val);
+                          setState(() {
+                            _flashlightEnabled = val;
+                          });
+                        },
+                      ),
+                      _buildRadioTile(
+                        'Giro da Tela (Auto)', 
+                        {
+                          'available': true,
+                          'enabled': _autoRotationEnabled,
+                          'state': _autoRotationEnabled ? 'AUTO-ROTAÇÃO' : 'BLOQUEADO',
+                          'subtitle': 'Bloqueia ou desbloqueia a rotação automática global',
+                        }, 
+                        Icons.screen_rotation_rounded, 
+                        theme, 
+                        isDark,
+                        onToggle: (val) async {
+                          final success = await LauncherService.setAutoRotationEnabled(val);
+                          if (success) {
+                            setState(() {
+                              _autoRotationEnabled = val;
+                            });
+                          } else {
+                            Future.delayed(const Duration(seconds: 4), () async {
+                              final rot = await LauncherService.isAutoRotationEnabled();
+                              setState(() {
+                                _autoRotationEnabled = rot;
+                              });
+                            });
+                          }
+                        },
+                      ),
+                      _buildRadioTile(
+                        'Infravermelho', 
+                        _hardwareInfo['infrared'] ?? {}, 
+                        Icons.settings_remote_rounded, 
+                        theme, 
+                        isDark,
+                        onToggle: (val) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Hardware Infravermelho controlado automaticamente pelo sistema.'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      _buildSectionTitle('SENSORES DE HARDWARE', theme),
+                      ..._buildPhysicalSensorsList(theme, isDark),
+                    ],
+                  ),
+          ),
+          
+          Divider(color: theme.colorScheme.primary.withOpacity(0.15)),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'PORTAL OS v1.0.3',
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w800,
+                  color: theme.colorScheme.primary.withOpacity(0.4),
+                  letterSpacing: 0.5,
+                ),
+              ),
+              Text(
+                'HARDWARE ACTIVE',
+                style: TextStyle(
+                  fontSize: 8,
+                  fontWeight: FontWeight.bold,
+                  color: theme.colorScheme.primary.withOpacity(0.7),
+                ),
+              ),
+            ],
           ),
         ],
       ),

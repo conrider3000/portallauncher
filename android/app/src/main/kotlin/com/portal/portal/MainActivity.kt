@@ -24,6 +24,8 @@ import android.nfc.NfcAdapter
 import android.hardware.ConsumerIrManager
 import android.telephony.TelephonyManager
 import android.provider.AlarmClock
+import android.hardware.camera2.CameraManager
+import android.net.Uri
 
 class MainActivity : FlutterActivity() {
     private val LAUNCHER_CHANNEL = "com.portal/launcher_setup"
@@ -100,6 +102,25 @@ class MainActivity : FlutterActivity() {
                 "openNfcSettings" -> {
                     openNfcSettings()
                     result.success(true)
+                }
+                "toggleFlashlight" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    result.success(setFlashlightEnabled(enabled))
+                }
+                "openLocationSettings" -> {
+                    openLocationSettings()
+                    result.success(true)
+                }
+                "openCameraApp" -> {
+                    openCameraApp()
+                    result.success(true)
+                }
+                "isAutoRotationEnabled" -> {
+                    result.success(isAutoRotationEnabled())
+                }
+                "setAutoRotationEnabled" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: false
+                    result.success(setAutoRotationEnabled(enabled))
                 }
                 else -> {
                     result.notImplemented()
@@ -505,6 +526,72 @@ class MainActivity : FlutterActivity() {
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivity(intent)
             } catch (ex: Exception) {}
+        }
+    }
+
+    private fun setFlashlightEnabled(enabled: Boolean): Boolean {
+        return try {
+            val cameraManager = applicationContext.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
+            if (cameraManager != null) {
+                val cameraId = cameraManager.cameraIdList[0]
+                cameraManager.setTorchMode(cameraId, enabled)
+                true
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun openLocationSettings() {
+        try {
+            val intent = Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        } catch (e: Exception) {}
+    }
+
+    private fun openCameraApp() {
+        try {
+            val intent = Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        } catch (e: Exception) {}
+    }
+
+    private fun isAutoRotationEnabled(): Boolean {
+        return try {
+            Settings.System.getInt(
+                contentResolver,
+                Settings.System.ACCELEROMETER_ROTATION,
+                0
+            ) == 1
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun setAutoRotationEnabled(enabled: Boolean): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (!Settings.System.canWrite(this)) {
+                val intent = Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).apply {
+                    data = Uri.parse("package:$packageName")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(intent)
+                return false
+            }
+        }
+        return try {
+            Settings.System.putInt(
+                contentResolver,
+                Settings.System.ACCELEROMETER_ROTATION,
+                if (enabled) 1 else 0
+            )
+            true
+        } catch (e: Exception) {
+            false
         }
     }
 }

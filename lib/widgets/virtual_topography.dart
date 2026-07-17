@@ -121,6 +121,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     VirtualTopography.earthFilterNotifier.addListener(_onFilterChanged);
     VirtualTopography.directSearchTrigger.addListener(_onDirectSearchTriggered);
     VirtualTopography.toggleRotationTrigger.addListener(_onToggleRotationChanged);
+    _initializeUserCoordinates();
   }
 
   @override
@@ -133,6 +134,36 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     _popupTimer?.cancel();
     _cloudsRefreshTimer?.cancel();
     super.dispose();
+  }
+
+  Future<void> _initializeUserCoordinates() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      double? lat = prefs.getDouble('portal_last_lat');
+      double? lon = prefs.getDouble('portal_last_lon');
+
+      if (lat == null || lon == null) {
+        final permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.always || permission == LocationPermission.whileInUse) {
+          final lastPos = await Geolocator.getLastKnownPosition();
+          if (lastPos != null) {
+            lat = lastPos.latitude;
+            lon = lastPos.longitude;
+          }
+        }
+      }
+
+      if (lat != null && lon != null) {
+        final double latRad = lat * math.pi / 180.0;
+        final double lonRad = lon * math.pi / 180.0;
+        setState(() {
+          final autoRotY = _animationController.value * 2 * math.pi;
+          _manualRotationY = -lonRad - math.pi - autoRotY;
+          _manualRotationX = latRad - 0.2;
+          _zoom = 1.1;
+        });
+      }
+    } catch (_) {}
   }
 
   void _onFilterChanged() {
@@ -648,8 +679,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
 
   void _handleTapDown(TapDownDetails details, double width, double height) {
     if (_showFlatMap) return;
-    // Shift the tap detection center Y down matching the painter's shift to avoid details card overlapping
-    final center = Offset(width / 2, height / 2 + (_selectedGeoPoint != null ? 40.0 : 0.0));
+    final center = Offset(width / 2, height / 2);
     final radius = ((width - 32) / 2) * _zoom;
 
     final autoRotY = _animationController.value * 2 * math.pi;
@@ -706,8 +736,6 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
           setState(() {
             _selectedGeoPoint = null;
             _zoom = 1.0;
-            _manualRotationX = -0.2;
-            _manualRotationY = 0.0;
             if (VirtualTopography.toggleRotationTrigger.value) {
               _animationController.repeat();
             }
@@ -718,8 +746,6 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
       setState(() {
         _selectedGeoPoint = null;
         _zoom = 1.0;
-        _manualRotationX = -0.2;
-        _manualRotationY = 0.0;
         if (VirtualTopography.toggleRotationTrigger.value) {
           _animationController.repeat();
         }
@@ -837,158 +863,137 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
              if (_selectedGeoPoint != null)
                Positioned(
                  top: 8,
-                left: 0,
-                right: 0,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(24),
-                  child: BackdropFilter(
-                    filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                    child: Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: (isDark ? Colors.black : Colors.white).withOpacity(0.65),
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(
-                          color: (isDark ? Colors.white : Colors.black).withOpacity(0.08),
-                          width: 1.2,
-                        ),
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            _selectedGeoPoint!['name'],
-                                            style: TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w800,
-                                              color: theme.colorScheme.onSurface,
-                                            ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                          decoration: BoxDecoration(
-                                            color: theme.colorScheme.primary.withOpacity(0.12),
-                                            borderRadius: BorderRadius.circular(12),
-                                          ),
-                                          child: Text(
-                                            _selectedGeoPoint!['status'],
-                                            style: TextStyle(
-                                              fontSize: 8,
-                                              fontWeight: FontWeight.w800,
-                                              color: theme.colorScheme.primary,
-                                            ),
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        IconButton(
-                                          icon: const Icon(Icons.close_rounded, size: 18),
-                                          padding: EdgeInsets.zero,
-                                          constraints: const BoxConstraints(),
-                                            onPressed: () {
-                                              setState(() {
-                                                _selectedGeoPoint = null;
-                                                if (VirtualTopography.toggleRotationTrigger.value) {
-                                                  _animationController.repeat();
-                                                }
-                                              });
-                                            },
-                                        ),
-                                      ],
+                 left: 0,
+                 right: 0,
+                 child: ClipRRect(
+                   borderRadius: BorderRadius.circular(24),
+                   child: BackdropFilter(
+                     filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                     child: Container(
+                       decoration: BoxDecoration(
+                         color: (isDark ? Colors.black : Colors.white).withOpacity(0.65),
+                         borderRadius: BorderRadius.circular(24),
+                         border: Border.all(
+                           color: (isDark ? Colors.white : Colors.black).withOpacity(0.08),
+                           width: 1.2,
+                         ),
+                       ),
+                       child: Stack(
+                         children: [
+                           Padding(
+                             padding: const EdgeInsets.only(top: 16, left: 16, right: 40, bottom: 16),
+                             child: Column(
+                               mainAxisSize: MainAxisSize.min,
+                               crossAxisAlignment: CrossAxisAlignment.start,
+                               children: [
+                                 Row(
+                                   children: [
+                                     Expanded(
+                                       child: Text(
+                                         _selectedGeoPoint!['name'],
+                                         style: TextStyle(
+                                           fontSize: 16,
+                                           fontWeight: FontWeight.w800,
+                                           color: theme.colorScheme.onSurface,
+                                         ),
+                                         maxLines: 1,
+                                         overflow: TextOverflow.ellipsis,
+                                       ),
                                      ),
-                                     const SizedBox(height: 1),
-                                     Text(
-                                      _selectedGeoPoint!['project'],
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                        color: theme.colorScheme.secondary,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      _selectedGeoPoint!['info'],
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: theme.colorScheme.onSurface.withOpacity(0.85),
-                                      ),
-                                      maxLines: 3,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                    if (_selectedGeoPoint!['imageUrl'] == null) ...[
-                                      const SizedBox(height: 6),
-                                      InkWell(
-                                        onTap: () {
-                                          final titleEsc = Uri.encodeComponent(_selectedGeoPoint!['name'] ?? '');
-                                          LauncherService.openUrl('https://commons.wikimedia.org/wiki/Special:UploadWizard?uselang=pt&wpDestFile=$titleEsc.jpg');
-                                        },
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Icon(Icons.add_a_photo_rounded, size: 11, color: theme.colorScheme.primary),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              'Enviar imagem para a Wikipédia',
-                                              style: TextStyle(
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.bold,
-                                                color: theme.colorScheme.primary,
-                                                decoration: TextDecoration.underline,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(14),
-                                child: _selectedGeoPoint!['imageUrl'] != null
-                                    ? Image.network(
-                                        _selectedGeoPoint!['imageUrl'],
-                                        width: 76,
-                                        height: 76,
-                                        fit: BoxFit.cover,
-                                        errorBuilder: (context, error, stackTrace) => Container(
-                                          width: 76,
-                                          height: 76,
-                                          color: (isDark ? Colors.white : Colors.black).withOpacity(0.06),
-                                          child: Icon(Icons.image_not_supported_rounded, size: 24, color: theme.colorScheme.onSurface.withOpacity(0.3)),
-                                        ),
-                                      )
-                                    : Container(
-                                        width: 76,
-                                        height: 76,
-                                        color: (isDark ? Colors.white : Colors.black).withOpacity(0.06),
-                                        child: Icon(Icons.image_not_supported_rounded, size: 24, color: theme.colorScheme.onSurface.withOpacity(0.3)),
-                                      ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+                                     if (_selectedGeoPoint!['status'] != 'ONLINE' &&
+                                         _selectedGeoPoint!['status'] != 'SYNCING' &&
+                                         _selectedGeoPoint!['status'] != 'STANDBY') ...[
+                                       const SizedBox(width: 8),
+                                       Container(
+                                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                         decoration: BoxDecoration(
+                                           color: theme.colorScheme.primary.withOpacity(0.12),
+                                           borderRadius: BorderRadius.circular(12),
+                                         ),
+                                         child: Text(
+                                           _selectedGeoPoint!['status'],
+                                           style: TextStyle(
+                                             fontSize: 8,
+                                             fontWeight: FontWeight.w800,
+                                             color: theme.colorScheme.primary,
+                                           ),
+                                         ),
+                                       ),
+                                     ],
+                                   ],
+                                 ),
+                                 if (_selectedGeoPoint!['project'] != 'Receptor GPS Local') ...[
+                                   const SizedBox(height: 2),
+                                   Text(
+                                     _selectedGeoPoint!['project'],
+                                     style: TextStyle(
+                                       fontSize: 11,
+                                       fontWeight: FontWeight.w700,
+                                       color: theme.colorScheme.secondary,
+                                     ),
+                                   ),
+                                 ],
+                                 const SizedBox(height: 6),
+                                 Row(
+                                   crossAxisAlignment: CrossAxisAlignment.start,
+                                   children: [
+                                     Expanded(
+                                       child: Text(
+                                         _selectedGeoPoint!['info'],
+                                         style: TextStyle(
+                                           fontSize: 12,
+                                           color: theme.colorScheme.onSurface.withOpacity(0.85),
+                                         ),
+                                         maxLines: 3,
+                                         overflow: TextOverflow.ellipsis,
+                                       ),
+                                     ),
+                                     if (_selectedGeoPoint!['imageUrl'] != null) ...[
+                                       const SizedBox(width: 12),
+                                       ClipRRect(
+                                         borderRadius: BorderRadius.circular(14),
+                                         child: Image.network(
+                                           _selectedGeoPoint!['imageUrl'],
+                                           width: 76,
+                                           height: 76,
+                                           fit: BoxFit.cover,
+                                           errorBuilder: (context, error, stackTrace) => Container(
+                                             width: 76,
+                                             height: 76,
+                                             color: (isDark ? Colors.white : Colors.black).withOpacity(0.06),
+                                             child: Icon(Icons.image_not_supported_rounded, size: 24, color: theme.colorScheme.onSurface.withOpacity(0.3)),
+                                           ),
+                                         ),
+                                       ),
+                                     ],
+                                   ],
+                                 ),
+                               ],
+                             ),
+                           ),
+                           Positioned(
+                             top: 14,
+                             right: 14,
+                             child: IconButton(
+                               icon: const Icon(Icons.close_rounded, size: 20),
+                               padding: EdgeInsets.zero,
+                               constraints: const BoxConstraints(),
+                               onPressed: () {
+                                 setState(() {
+                                   _selectedGeoPoint = null;
+                                   if (VirtualTopography.toggleRotationTrigger.value) {
+                                     _animationController.repeat();
+                                   }
+                                 });
+                               },
+                             ),
+                           ),
+                         ],
+                       ),
+                     ),
+                   ),
+                 ),
+               ),
 
             // Wikipedia interactive search results list overlay
             if (_wikiSearchResults.isNotEmpty)
@@ -1128,8 +1133,7 @@ class _TexturedGlobePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final double cx = size.width / 2;
-    // Shift globe center Y down by 40dp when selected to avoid overlapping the top details card
-    final double cy = size.height / 2 + (hasSelection ? 40.0 : 0.0);
+    final double cy = size.height / 2;
     final double radius = ((size.width - 32) / 2) * zoom;
 
     final double autoRotY = rotationProgress * 2 * math.pi;
