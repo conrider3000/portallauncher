@@ -156,4 +156,21 @@ class LauncherService {
       return false;
     }
   }
+
+  /// Opens Google Lens (or fallback).
+  static Future<void> openGoogleLens() async {
+    try {
+      await _channel.invokeMethod('openGoogleLens');
+    } catch (_) {}
+  }
+
+  /// Simulates clicking a notification by key, invoking its contentIntent.
+  static Future<bool> clickNotification(String key) async {
+    try {
+      final bool result = await _channel.invokeMethod('clickNotification', {'key': key});
+      return result;
+    } catch (_) {
+      return false;
+    }
+  }
 }

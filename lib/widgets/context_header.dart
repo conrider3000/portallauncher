@@ -270,7 +270,7 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
     _currentTime = DateTime.now();
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 250),
+      duration: const Duration(milliseconds: 350),
     );
     _animation = CurvedAnimation(
       parent: _animationController,

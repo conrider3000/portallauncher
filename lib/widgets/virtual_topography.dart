@@ -409,7 +409,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Este globo utiliza fórmulas de projeção esférica tridimensional (matemática 3D) renderizadas em tempo real a 60 FPS. Você pode arrastar para girar e usar o gesto de pinça (pinch) para dar zoom.',
+                          'Este globo utiliza fórmulas de projeção esférica tridimensional (matemática 3D) renderizadas em tempo real a 60 FPS. Você pode arrastar para girar e usar o gesto de pinça (pinch) para dar zoom. O globo rotaciona automaticamente a uma velocidade física realista de 360° a cada 24 horas (tempo sideral aproximado), sincronizado com o movimento real da Terra.',
                           style: TextStyle(
                             fontSize: 12,
                             color: theme.colorScheme.onSurface.withOpacity(0.85),

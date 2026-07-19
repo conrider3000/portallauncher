@@ -299,88 +299,96 @@ class _NotificationsInboxViewState extends State<NotificationsInboxView> with Wi
                           child: const Icon(Icons.archive_outlined, color: Colors.white, size: 20),
                         ),
                         onDismissed: (direction) => _dismiss(key, index),
-                        child: Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: (isDark ? Colors.white : Colors.black).withOpacity(0.04),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: theme.colorScheme.primary.withOpacity(0.06),
-                              width: 1.0,
-                            ),
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // App Icon
-                              FutureBuilder<Uint8List?>(
-                                future: AppsService.getAppIcon(pack),
-                                builder: (context, snap) {
-                                  if (snap.hasData && snap.data != null) {
-                                    return ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: Image.memory(snap.data!, width: 26, height: 26, fit: BoxFit.cover),
-                                    );
-                                  }
-                                  return Container(
-                                    width: 26,
-                                    height: 26,
-                                    decoration: BoxDecoration(
-                                      color: theme.colorScheme.primary.withOpacity(0.1),
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    alignment: Alignment.center,
-                                    child: Icon(Icons.android_rounded, size: 16, color: theme.colorScheme.primary),
-                                  );
-                                },
+                        child: GestureDetector(
+                          onDoubleTap: () async {
+                            final clicked = await LauncherService.clickNotification(key);
+                            if (!clicked && pack.isNotEmpty) {
+                              await AppsService.launchApp(pack, '');
+                            }
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: (isDark ? Colors.white : Colors.black).withOpacity(0.04),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: theme.colorScheme.primary.withOpacity(0.06),
+                                width: 1.0,
                               ),
-                              const SizedBox(width: 12),
-                              
-                              // Notification content
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        Text(
-                                          _getAppName(pack),
-                                          style: TextStyle(
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w800,
-                                            color: theme.colorScheme.primary,
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // App Icon
+                                FutureBuilder<Uint8List?>(
+                                  future: AppsService.getAppIcon(pack),
+                                  builder: (context, snap) {
+                                    if (snap.hasData && snap.data != null) {
+                                      return ClipRRect(
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: Image.memory(snap.data!, width: 26, height: 26, fit: BoxFit.cover),
+                                      );
+                                    }
+                                    return Container(
+                                      width: 26,
+                                      height: 26,
+                                      decoration: BoxDecoration(
+                                        color: theme.colorScheme.primary.withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      alignment: Alignment.center,
+                                      child: Icon(Icons.android_rounded, size: 16, color: theme.colorScheme.primary),
+                                    );
+                                  },
+                                ),
+                                const SizedBox(width: 12),
+                                
+                                // Notification content
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            _getAppName(pack),
+                                            style: TextStyle(
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w800,
+                                              color: theme.colorScheme.primary,
+                                            ),
                                           ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 3),
+                                      if (title.isNotEmpty)
+                                        Text(
+                                          title,
+                                          style: TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            color: theme.colorScheme.onSurface,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
                                         ),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 3),
-                                    if (title.isNotEmpty)
+                                      const SizedBox(height: 2),
                                       Text(
-                                        title,
+                                        text,
                                         style: TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
-                                          color: theme.colorScheme.onSurface,
+                                          fontSize: 11,
+                                          color: theme.colorScheme.onSurface.withOpacity(0.65),
+                                          height: 1.3,
                                         ),
-                                        maxLines: 1,
+                                        maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                       ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      text,
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: theme.colorScheme.onSurface.withOpacity(0.65),
-                                        height: 1.3,
-                                      ),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ),

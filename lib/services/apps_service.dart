@@ -173,4 +173,28 @@ class AppsService {
       return getMostUsedApps(allApps);
     }
   }
+
+  /// Triggers the Android system app uninstallation dialog.
+  static Future<void> uninstallApp(String packageName) async {
+    if (!isAndroidNative) return;
+    try {
+      await _channel.invokeMethod('uninstallApp', {'packageName': packageName});
+    } catch (_) {}
+  }
+
+  /// Opens the app's Google Play Store page.
+  static Future<void> updateApp(String packageName) async {
+    if (!isAndroidNative) return;
+    try {
+      await _channel.invokeMethod('updateApp', {'packageName': packageName});
+    } catch (_) {}
+  }
+
+  /// Opens the Android settings details page for the app.
+  static Future<void> showAppDetails(String packageName) async {
+    if (!isAndroidNative) return;
+    try {
+      await _channel.invokeMethod('showAppDetails', {'packageName': packageName});
+    } catch (_) {}
+  }
 }

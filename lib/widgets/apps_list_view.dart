@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../services/apps_service.dart';
 
@@ -233,6 +234,149 @@ class _AppsListViewState extends State<AppsListView> {
     );
   }
 
+  void _showAppOptions(AppInfo app, ThemeData theme, bool isDark) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.transparent,
+      builder: (context) {
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: BackdropFilter(
+                filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                child: Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: (isDark ? const Color(0xFF070D09) : const Color(0xFFF4F7F5)).withOpacity(0.75),
+                    borderRadius: BorderRadius.circular(24),
+                    border: Border.all(
+                      color: theme.colorScheme.primary.withOpacity(0.15),
+                      width: 1.2,
+                    ),
+                  ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Header with app label
+                        Row(
+                          children: [
+                            if (_loadedIcons[app.packageName] != null)
+                              Image.memory(
+                                _loadedIcons[app.packageName]!,
+                                width: 36,
+                                height: 36,
+                              )
+                            else
+                              Icon(Icons.android_rounded, size: 36, color: theme.colorScheme.primary),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    app.label,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                      color: theme.colorScheme.onSurface,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    app.packageName,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: theme.colorScheme.onSurface.withOpacity(0.5),
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        const Divider(),
+                        const SizedBox(height: 8),
+                        // Option 1: App Info (suggested 3rd option)
+                        _buildOptionTile(
+                          icon: Icons.info_outline_rounded,
+                          title: 'Informações do App',
+                          onTap: () {
+                            Navigator.pop(context);
+                            AppsService.showAppDetails(app.packageName);
+                          },
+                          theme: theme,
+                        ),
+                        // Option 2: Update (Play Store)
+                        _buildOptionTile(
+                          icon: Icons.update_rounded,
+                          title: 'Atualizar',
+                          onTap: () {
+                            Navigator.pop(context);
+                            AppsService.updateApp(app.packageName);
+                          },
+                          theme: theme,
+                        ),
+                        // Option 3: Uninstall
+                        _buildOptionTile(
+                          icon: Icons.delete_outline_rounded,
+                          title: 'Desinstalar',
+                          isDestructive: true,
+                          onTap: () {
+                            Navigator.pop(context);
+                            AppsService.uninstallApp(app.packageName);
+                          },
+                          theme: theme,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildOptionTile({
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+    required ThemeData theme,
+    bool isDestructive = false,
+  }) {
+    final color = isDestructive ? Colors.redAccent : theme.colorScheme.onSurface;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+        child: Row(
+          children: [
+            Icon(icon, color: color, size: 20),
+            const SizedBox(width: 16),
+            Text(
+              title,
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 14,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildGlassmorphicItem(AppInfo app, bool isDark, ThemeData theme) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4.0, horizontal: 8.0),
@@ -247,6 +391,7 @@ class _AppsListViewState extends State<AppsListView> {
             color: Colors.transparent,
             child: InkWell(
               onTap: () => AppsService.launchApp(app.packageName, app.className),
+              onLongPress: () => _showAppOptions(app, theme, isDark),
               splashColor: theme.colorScheme.primary.withOpacity(0.08),
               highlightColor: theme.colorScheme.primary.withOpacity(0.04),
               borderRadius: BorderRadius.circular(12),
@@ -277,15 +422,15 @@ class _AppsListViewState extends State<AppsListView> {
                       width: 32,
                       height: 32,
                       child: _loadedIcons[app.packageName] != null
-                          ? Image.memory(
-                              _loadedIcons[app.packageName]!,
-                              filterQuality: FilterQuality.medium,
-                            )
-                          : Icon(
-                              Icons.android_rounded,
-                              size: 20,
-                              color: theme.colorScheme.primary.withOpacity(0.3),
-                            ),
+                        ? Image.memory(
+                            _loadedIcons[app.packageName]!,
+                            filterQuality: FilterQuality.medium,
+                          )
+                        : Icon(
+                            Icons.android_rounded,
+                            size: 20,
+                            color: theme.colorScheme.primary.withOpacity(0.3),
+                          ),
                     ),
                   ],
                 ),

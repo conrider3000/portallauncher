@@ -122,6 +122,18 @@ class MainActivity : FlutterActivity() {
                     val enabled = call.argument<Boolean>("enabled") ?: false
                     result.success(setAutoRotationEnabled(enabled))
                 }
+                "openGoogleLens" -> {
+                    openGoogleLens()
+                    result.success(true)
+                }
+                "clickNotification" -> {
+                    val key = call.argument<String>("key")
+                    if (key != null) {
+                        result.success(clickNotification(key))
+                    } else {
+                        result.error("INVALID_ARGUMENT", "Key is null", null)
+                    }
+                }
                 else -> {
                     result.notImplemented()
                 }
@@ -151,6 +163,33 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     } else {
                         result.error("INVALID_ARGUMENT", "Package or class name is null", null)
+                    }
+                }
+                "uninstallApp" -> {
+                    val packageName = call.argument<String>("packageName")
+                    if (packageName != null) {
+                        uninstallApp(packageName)
+                        result.success(true)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "Package name is null", null)
+                    }
+                }
+                "updateApp" -> {
+                    val packageName = call.argument<String>("packageName")
+                    if (packageName != null) {
+                        updateApp(packageName)
+                        result.success(true)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "Package name is null", null)
+                    }
+                }
+                "showAppDetails" -> {
+                    val packageName = call.argument<String>("packageName")
+                    if (packageName != null) {
+                        showAppDetails(packageName)
+                        result.success(true)
+                    } else {
+                        result.error("INVALID_ARGUMENT", "Package name is null", null)
                     }
                 }
                 else -> {
@@ -593,5 +632,116 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             false
         }
+    }
+
+    private fun openGoogleLens() {
+        try {
+            val intent = packageManager.getLaunchIntentForPackage("com.google.ar.lens")
+            if (intent != null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+                return
+            }
+        } catch (e: Exception) {}
+
+        try {
+            val intent = Intent("com.google.ar.lens.LENS_ACTIVITY")
+            intent.setPackage("com.google.ar.lens")
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+            return
+        } catch (e: Exception) {}
+
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("googleapp://lens"))
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        } catch (e: Exception) {
+            openCameraApp()
+        }
+    }
+
+    private fun clickNotification(key: String): Boolean {
+        try {
+            val serviceInstance = MyNotificationListenerService.instance ?: return false
+            val sbns = serviceInstance.activeNotifications ?: return false
+            for (sbn in sbns) {
+                if (sbn.key == key) {
+                    val contentIntent = sbn.notification.contentIntent
+                    if (contentIntent != null) {
+                        // First bring the app to foreground using its launch intent
+                        val launchIntent = packageManager.getLaunchIntentForPackage(sbn.packageName)
+                        if (launchIntent != null) {
+                            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            startActivity(launchIntent)
+                        }
+                        // Second trigger the notification's original click PendingIntent
+                        contentIntent.send()
+                        
+                        serviceInstance.cancelNotification(sbn.key)
+                        serviceInstance.updateNotifications()
+                        return true
+                    }
+                    break
+                }
+            }
+        } catch (e: Exception) {
+            // Fallback: if PendingIntent.send fails, try to at least launch the app
+            try {
+                val serviceInstance = MyNotificationListenerService.instance ?: return false
+                val sbns = serviceInstance.activeNotifications ?: return false
+                for (sbn in sbns) {
+                    if (sbn.key == key) {
+                        val launchIntent = packageManager.getLaunchIntentForPackage(sbn.packageName)
+                        if (launchIntent != null) {
+                            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            startActivity(launchIntent)
+                            serviceInstance.cancelNotification(sbn.key)
+                            serviceInstance.updateNotifications()
+                            return true
+                        }
+                    }
+                }
+            } catch (e2: Exception) {}
+        }
+        return false
+    }
+
+    private fun uninstallApp(packageName: String) {
+        try {
+            val intent = Intent(Intent.ACTION_DELETE).apply {
+                data = Uri.parse("package:$packageName")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        } catch (e: Exception) {}
+    }
+
+    private fun updateApp(packageName: String) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                data = Uri.parse("market://details?id=$packageName")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            try {
+                val intent = Intent(Intent.ACTION_VIEW).apply {
+                    data = Uri.parse("https://play.google.com/store/apps/details?id=$packageName")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(intent)
+            } catch (e2: Exception) {}
+        }
+    }
+
+    private fun showAppDetails(packageName: String) {
+        try {
+            val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.parse("package:$packageName")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        } catch (e: Exception) {}
     }
 }

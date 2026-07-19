@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' as ui;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -21,6 +22,8 @@ class LauncherScreen extends StatefulWidget {
 class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObserver, TickerProviderStateMixin {
   late AnimationController _filterBarController;
   final PageController _pageController = PageController();
+  int _searchTapCount = 0;
+  Timer? _searchTapTimer;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   int _currentPageIndex = 0;
   bool _isDefault = true;
@@ -121,6 +124,33 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
     }
   }
 
+  void _handleSearchTap() {
+    final query = _searchController.text.trim();
+    if (query.isEmpty) {
+      _openSearchOverlay();
+      return;
+    }
+
+    _searchTapCount++;
+    _searchTapTimer?.cancel();
+    _searchTapTimer = Timer(const Duration(milliseconds: 300), () {
+      if (_searchTapCount == 1) {
+        // Single tap: Wikipedia
+        _searchFocusNode.unfocus();
+        VirtualTopography.directSearchTrigger.value = query;
+      } else if (_searchTapCount == 2) {
+        // Double tap: Google Search
+        _searchFocusNode.unfocus();
+        LauncherService.openUrl("https://www.google.com/search?q=${Uri.encodeComponent(query)}");
+      } else if (_searchTapCount >= 3) {
+        // Triple tap: Google Maps
+        _searchFocusNode.unfocus();
+        LauncherService.openUrl("https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(query)}");
+      }
+      _searchTapCount = 0;
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -133,7 +163,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
 
     _filterBarController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 500),
+      duration: const Duration(milliseconds: 350),
       value: 1.0, // Initially visible
     );
     ContextHeader.isPanelOpenNotifier.addListener(_onPanelOpenChanged);
@@ -167,6 +197,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
     WidgetsBinding.instance.removeObserver(this);
     ContextHeader.isPanelOpenNotifier.removeListener(_onPanelOpenChanged);
     _filterBarController.dispose();
+    _searchTapTimer?.cancel();
     _pageController.dispose();
     _searchController.dispose();
     _overlaySearchController.dispose();
@@ -469,37 +500,112 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
             Positioned.fill(
               child: Column(
                 children: [
-                  // Stack to overlay the centered page title on the same line as ContextHeader
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      const Padding(
-                        padding: EdgeInsets.only(left: 16.0, right: 16.0, top: 12.0, bottom: 8.0),
-                        child: ContextHeader(),
+                  // Stack to overlay the center
+                  if (_currentPageIndex == 0)
+                    SizedBox(
+                      height: 148.0,
+                      child: Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Positioned(
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            child: Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                const Padding(
+                                  padding: EdgeInsets.only(left: 16.0, right: 16.0, top: 12.0, bottom: 8.0),
+                                  child: ContextHeader(),
+                                ),
+                                ValueListenableBuilder<bool>(
+                                  valueListenable: ContextHeader.isPanelOpenNotifier,
+                                  builder: (context, isPanelOpen, child) {
+                                    return AnimatedOpacity(
+                                      opacity: isPanelOpen ? 0.0 : 1.0,
+                                      duration: const Duration(milliseconds: 200),
+                                      child: Padding(
+                                        padding: const EdgeInsets.only(top: 4.0),
+                                        child: GestureDetector(
+                                          onTap: () {
+                                            VirtualTopography.toggleRotationTrigger.value = 
+                                                !VirtualTopography.toggleRotationTrigger.value;
+                                          },
+                                          child: Text(
+                                            'Home',
+                                            style: TextStyle(
+                                              fontSize: 20,
+                                              fontWeight: FontWeight.w800,
+                                              letterSpacing: -0.5,
+                                              color: isDark ? const Color(0xFFFAFAFA) : Colors.black,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
+                            ),
+                          ),
+                          Positioned(
+                            bottom: 12.0,
+                            left: 0,
+                            right: 0,
+                            child: AnimatedBuilder(
+                              animation: _filterBarController,
+                              builder: (context, child) {
+                                if (_filterBarController.value == 0.0 && ContextHeader.isPanelOpenNotifier.value) {
+                                  return const SizedBox.shrink();
+                                }
+                                
+                                final Offset offset;
+                                if (!ContextHeader.isPanelOpenNotifier.value) {
+                                  final double progress = Curves.easeOutCubic.transform(_filterBarController.value);
+                                  offset = Offset(progress - 1.0, 0.0);
+                                } else {
+                                  final double progress = Curves.easeInCubic.transform(1.0 - _filterBarController.value);
+                                  offset = Offset(progress, 0.0);
+                                }
+                                
+                                return ClipRect(
+                                  child: FadeTransition(
+                                    opacity: _filterBarController,
+                                    child: FractionalTranslation(
+                                      translation: offset,
+                                      child: child!,
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: _buildEarthFilterBar(theme, isDark),
+                            ),
+                          ),
+                        ],
                       ),
-                      ValueListenableBuilder<bool>(
-                        valueListenable: ContextHeader.isPanelOpenNotifier,
-                        builder: (context, isPanelOpen, child) {
-                          return AnimatedOpacity(
-                            opacity: isPanelOpen ? 0.0 : 1.0,
-                            duration: const Duration(milliseconds: 200),
-                            child: Padding(
-                              padding: const EdgeInsets.only(top: 4.0), // Center align vertically with the sun/moon button
-                              child: GestureDetector(
-                                onTap: () {
-                                  if (_currentPageIndex == 0) {
-                                    VirtualTopography.toggleRotationTrigger.value = 
-                                        !VirtualTopography.toggleRotationTrigger.value;
-                                  }
-                                },
+                    )
+                  else
+                    Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.only(left: 16.0, right: 16.0, top: 12.0, bottom: 8.0),
+                          child: ContextHeader(),
+                        ),
+                        ValueListenableBuilder<bool>(
+                          valueListenable: ContextHeader.isPanelOpenNotifier,
+                          builder: (context, isPanelOpen, child) {
+                            return AnimatedOpacity(
+                              opacity: isPanelOpen ? 0.0 : 1.0,
+                              duration: const Duration(milliseconds: 200),
+                              child: Padding(
+                                padding: const EdgeInsets.only(top: 4.0),
                                 child: Text(
-                                  _currentPageIndex == 0
-                                      ? 'Home'
-                                      : _currentPageIndex == 1
-                                          ? 'Memória'
-                                          : _currentPageIndex == 2
-                                              ? 'Aplicativos'
-                                              : 'Correio',
+                                  _currentPageIndex == 1
+                                      ? 'Memória'
+                                      : _currentPageIndex == 2
+                                          ? 'Aplicativos'
+                                          : 'Correio',
                                   style: TextStyle(
                                     fontSize: 20,
                                     fontWeight: FontWeight.w800,
@@ -508,44 +614,10 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                   ),
                                 ),
                               ),
-                            ),
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-
-                  // Filter bar (shown only on Home when panel closed)
-                  if (_currentPageIndex == 0)
-                    AnimatedBuilder(
-                      animation: _filterBarController,
-                      builder: (context, child) {
-                        if (_filterBarController.value == 0.0 && ContextHeader.isPanelOpenNotifier.value) {
-                          return const SizedBox.shrink();
-                        }
-                        
-                        final Offset offset;
-                        if (!ContextHeader.isPanelOpenNotifier.value) {
-                          // Entry: Slide from left (-1.0) to center (0.0)
-                          final double progress = Curves.easeOutCubic.transform(_filterBarController.value);
-                          offset = Offset(progress - 1.0, 0.0);
-                        } else {
-                          // Exit: Slide from center (0.0) to right (1.0)
-                          final double progress = Curves.easeInCubic.transform(1.0 - _filterBarController.value);
-                          offset = Offset(progress, 0.0);
-                        }
-                        
-                        return ClipRect(
-                          child: FadeTransition(
-                            opacity: _filterBarController,
-                            child: FractionalTranslation(
-                              translation: offset,
-                              child: child!,
-                            ),
-                          ),
-                        );
-                      },
-                      child: _buildEarthFilterBar(theme, isDark),
+                            );
+                          },
+                        ),
+                      ],
                     ),
 
                   // Warning banner if Portal is not the default launcher
@@ -872,6 +944,13 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                   debugPrint('Erro ao abrir a câmera: $e');
                                 }
                               },
+                              onDoubleTap: () async {
+                                try {
+                                  await LauncherService.openGoogleLens();
+                                } catch (e) {
+                                  debugPrint('Erro ao abrir o Google Lens: $e');
+                                }
+                              },
                               child: Icon(
                                 Icons.remove_red_eye_rounded,
                                 color: theme.colorScheme.primary.withOpacity(0.7),
@@ -888,15 +967,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                               color: isDark ? const Color(0xFFECEFF1).withOpacity(0.4) : Colors.black.withOpacity(0.35),
                             ),
                             suffixIcon: GestureDetector(
-                              onTap: () {
-                                final query = _searchController.text.trim();
-                                if (_currentPageIndex == 0 && query.isNotEmpty) {
-                                  _searchFocusNode.unfocus();
-                                  VirtualTopography.directSearchTrigger.value = query;
-                                } else {
-                                  _openSearchOverlay();
-                                }
-                              },
+                              onTap: _handleSearchTap,
                               child: Icon(
                                 Icons.search_rounded,
                                 color: theme.colorScheme.primary.withOpacity(0.7),
