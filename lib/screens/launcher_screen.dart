@@ -21,6 +21,8 @@ class LauncherScreen extends StatefulWidget {
 
 class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObserver, TickerProviderStateMixin {
   late AnimationController _filterBarController;
+  bool _isFilterBarExpanded = false;
+  bool _showHomeTitle = true;
   final PageController _pageController = PageController();
   int _searchTapCount = 0;
   Timer? _searchTapTimer;
@@ -117,11 +119,41 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
   }
 
   void _onPanelOpenChanged() {
-    if (ContextHeader.isPanelOpenNotifier.value) {
-      _filterBarController.reverse();
-    } else {
-      _filterBarController.forward();
+    if (mounted) {
+      final mode = ContextHeader.isPanelOpenNotifier.value;
+      setState(() {
+        if (mode == HeaderMode.timeSpace) {
+          _showHomeTitle = false;
+          if (_isFilterBarExpanded) {
+            _isFilterBarExpanded = false;
+            _filterBarController.reverse();
+          }
+        } else {
+          // Delay showing the title so it waits for the weather panel to animate out
+          Future.delayed(const Duration(milliseconds: 300), () {
+            if (mounted && ContextHeader.isPanelOpenNotifier.value != HeaderMode.timeSpace) {
+              setState(() {
+                _showHomeTitle = true;
+              });
+            }
+          });
+        }
+      });
     }
+  }
+
+  void _toggleFilterBar() {
+    setState(() {
+      _isFilterBarExpanded = !_isFilterBarExpanded;
+      if (_isFilterBarExpanded) {
+        _filterBarController.forward();
+        if (ContextHeader.isPanelOpenNotifier.value == HeaderMode.timeSpace) {
+          ContextHeader.isPanelOpenNotifier.value = HeaderMode.filter;
+        }
+      } else {
+        _filterBarController.reverse();
+      }
+    });
   }
 
   void _handleSearchTap() {
@@ -164,9 +196,14 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
     _filterBarController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 350),
-      value: 1.0, // Initially visible
+      value: 0.0, // Initially collapsed
     );
     ContextHeader.isPanelOpenNotifier.addListener(_onPanelOpenChanged);
+    VirtualTopography.onTapCallback = () {
+      if (_isFilterBarExpanded) {
+        _toggleFilterBar();
+      }
+    };
 
     // Listen to Home button / swipe-up gesture from Android
     const MethodChannel('com.portal/launcher_setup').setMethodCallHandler((call) async {
@@ -196,6 +233,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     ContextHeader.isPanelOpenNotifier.removeListener(_onPanelOpenChanged);
+    VirtualTopography.onTapCallback = null;
     _filterBarController.dispose();
     _searchTapTimer?.cancel();
     _pageController.dispose();
@@ -230,7 +268,12 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
       _overlayFilteredApps = [];
       _sideBarWidth = 0.0;
       _leftBarWidth = 0.0;
+      if (_isFilterBarExpanded) {
+        _isFilterBarExpanded = false;
+        _filterBarController.reverse();
+      }
     });
+    ContextHeader.isExtendedNotifier.value = false;
 
     _searchController.clear();
     _overlaySearchController.clear();
@@ -496,129 +539,10 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
         body: SafeArea(
           child: Stack(
             children: [
-              // Page Content (extends all the way down)
-            Positioned.fill(
+              Positioned.fill(
               child: Column(
                 children: [
-                  // Stack to overlay the center
-                  if (_currentPageIndex == 0)
-                    SizedBox(
-                      height: 148.0,
-                      child: Stack(
-                        clipBehavior: Clip.none,
-                        children: [
-                          Positioned(
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                const Padding(
-                                  padding: EdgeInsets.only(left: 16.0, right: 16.0, top: 12.0, bottom: 8.0),
-                                  child: ContextHeader(),
-                                ),
-                                ValueListenableBuilder<bool>(
-                                  valueListenable: ContextHeader.isPanelOpenNotifier,
-                                  builder: (context, isPanelOpen, child) {
-                                    return AnimatedOpacity(
-                                      opacity: isPanelOpen ? 0.0 : 1.0,
-                                      duration: const Duration(milliseconds: 200),
-                                      child: Padding(
-                                        padding: const EdgeInsets.only(top: 4.0),
-                                        child: GestureDetector(
-                                          onTap: () {
-                                            VirtualTopography.toggleRotationTrigger.value = 
-                                                !VirtualTopography.toggleRotationTrigger.value;
-                                          },
-                                          child: Text(
-                                            'Home',
-                                            style: TextStyle(
-                                              fontSize: 20,
-                                              fontWeight: FontWeight.w800,
-                                              letterSpacing: -0.5,
-                                              color: isDark ? const Color(0xFFFAFAFA) : Colors.black,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
-                          Positioned(
-                            bottom: 12.0,
-                            left: 0,
-                            right: 0,
-                            child: AnimatedBuilder(
-                              animation: _filterBarController,
-                              builder: (context, child) {
-                                if (_filterBarController.value == 0.0 && ContextHeader.isPanelOpenNotifier.value) {
-                                  return const SizedBox.shrink();
-                                }
-                                
-                                final Offset offset;
-                                if (!ContextHeader.isPanelOpenNotifier.value) {
-                                  final double progress = Curves.easeOutCubic.transform(_filterBarController.value);
-                                  offset = Offset(progress - 1.0, 0.0);
-                                } else {
-                                  final double progress = Curves.easeInCubic.transform(1.0 - _filterBarController.value);
-                                  offset = Offset(progress, 0.0);
-                                }
-                                
-                                return ClipRect(
-                                  child: FadeTransition(
-                                    opacity: _filterBarController,
-                                    child: FractionalTranslation(
-                                      translation: offset,
-                                      child: child!,
-                                    ),
-                                  ),
-                                );
-                              },
-                              child: _buildEarthFilterBar(theme, isDark),
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  else
-                    Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        const Padding(
-                          padding: EdgeInsets.only(left: 16.0, right: 16.0, top: 12.0, bottom: 8.0),
-                          child: ContextHeader(),
-                        ),
-                        ValueListenableBuilder<bool>(
-                          valueListenable: ContextHeader.isPanelOpenNotifier,
-                          builder: (context, isPanelOpen, child) {
-                            return AnimatedOpacity(
-                              opacity: isPanelOpen ? 0.0 : 1.0,
-                              duration: const Duration(milliseconds: 200),
-                              child: Padding(
-                                padding: const EdgeInsets.only(top: 4.0),
-                                child: Text(
-                                  _currentPageIndex == 1
-                                      ? 'Memória'
-                                      : _currentPageIndex == 2
-                                          ? 'Aplicativos'
-                                          : 'Correio',
-                                  style: TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: -0.5,
-                                    color: isDark ? const Color(0xFFFAFAFA) : Colors.black,
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ],
-                    ),
+                  const SizedBox(height: 148.0),
 
                   // Warning banner if Portal is not the default launcher
                   if (!_isDefault)
@@ -687,9 +611,17 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                       physics: const NeverScrollableScrollPhysics(),
                       children: [
                         // Page 0: Topography map view (Expanding rectangle)
-                        const Padding(
-                          padding: EdgeInsets.only(left: 16.0, right: 16.0, top: 8.0, bottom: 142.0),
-                          child: VirtualTopography(),
+                        GestureDetector(
+                          behavior: HitTestBehavior.translucent,
+                          onTap: () {
+                            if (_isFilterBarExpanded) {
+                              _toggleFilterBar();
+                            }
+                          },
+                          child: const Padding(
+                            padding: EdgeInsets.only(left: 16.0, right: 16.0, top: 0.0, bottom: 148.0),
+                            child: VirtualTopography(),
+                          ),
                         ),
                         // Page 1: Memory & Folder Explorer view
                         const MemoryExplorerView(),
@@ -704,6 +636,195 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
               ),
             ),
 
+            // ContextHeader & FilterBar Stack (overlay positioned at top of Stack to paint ON TOP of earth)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SizedBox(
+                height: 148.0,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Positioned(
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          GestureDetector(
+                            behavior: HitTestBehavior.translucent,
+                            onTap: () {
+                              if (_isFilterBarExpanded) {
+                                _toggleFilterBar();
+                              }
+                            },
+                            child: const Padding(
+                              padding: EdgeInsets.only(left: 16.0, right: 16.0, top: 12.0, bottom: 8.0),
+                              child: ContextHeader(),
+                            ),
+                          ),
+                          Positioned(
+                            top: 32.0,
+                            left: 0,
+                            right: 0,
+                            child: Align(
+                              alignment: Alignment.center,
+                              child: ValueListenableBuilder<HeaderMode>(
+                                valueListenable: ContextHeader.isPanelOpenNotifier,
+                                builder: (context, headerMode, child) {
+                                  final String titleText = _currentPageIndex == 0
+                                      ? 'Home'
+                                      : _currentPageIndex == 1
+                                          ? 'Memória'
+                                          : _currentPageIndex == 2
+                                              ? 'Aplicativos'
+                                              : 'Correio';
+
+                                  final bool isTitleVisible = (_currentPageIndex != 0)
+                                      ? (headerMode == HeaderMode.filter)
+                                      : ((headerMode == HeaderMode.filter) && _showHomeTitle);
+
+                                  return AnimatedOpacity(
+                                    opacity: isTitleVisible ? 1.0 : 0.0,
+                                    duration: const Duration(milliseconds: 200),
+                                    child: GestureDetector(
+                                      onTap: () {
+                                        if (_currentPageIndex == 0) {
+                                          VirtualTopography.toggleRotationTrigger.value = 
+                                              !VirtualTopography.toggleRotationTrigger.value;
+                                        }
+                                      },
+                                      child: Text(
+                                        titleText,
+                                        style: TextStyle(
+                                          fontSize: 20,
+                                          fontWeight: FontWeight.w800,
+                                          letterSpacing: -0.5,
+                                          color: isDark ? const Color(0xFFFAFAFA) : Colors.black,
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (_currentPageIndex == 0)
+                      AnimatedPositioned(
+                        duration: const Duration(milliseconds: 250),
+                        curve: Curves.easeInOut,
+                        bottom: (ContextHeader.isPanelOpenNotifier.value == HeaderMode.timeSpace) ? -2.0 : 12.0,
+                        left: 0,
+                        right: 0,
+                        child: ValueListenableBuilder<HeaderMode>(
+                          valueListenable: ContextHeader.isPanelOpenNotifier,
+                          builder: (context, mode, child) {
+                            if (mode == HeaderMode.none) {
+                              return const SizedBox.shrink();
+                            }
+                            final double screenWidth = MediaQuery.of(context).size.width;
+                            final double collapsedWidth = 48.0;
+                            final double expandedWidth = screenWidth - 42.0;
+
+                            return Padding(
+                              padding: const EdgeInsets.only(left: 26.0, right: 16.0),
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: AnimatedBuilder(
+                                  animation: _filterBarController,
+                                  builder: (context, child) {
+                                    final double progress = Curves.easeInOutCubic.transform(_filterBarController.value);
+                                    final double currentWidth = ui.lerpDouble(collapsedWidth, expandedWidth, progress)!;
+
+                                    return GestureDetector(
+                                      onTap: () {
+                                        if (!_isFilterBarExpanded) {
+                                          _toggleFilterBar();
+                                        }
+                                      },
+                                      child: Container(
+                                        width: currentWidth,
+                                        height: 48,
+                                        decoration: BoxDecoration(
+                                          color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
+                                          borderRadius: BorderRadius.circular(24),
+                                          border: Border.all(
+                                            color: theme.colorScheme.primary.withOpacity(ui.lerpDouble(0.15, 0.35, progress)!),
+                                            width: 1.2,
+                                          ),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: theme.colorScheme.primary.withOpacity(0.08),
+                                              blurRadius: 4,
+                                              spreadRadius: 0,
+                                            ),
+                                          ],
+                                        ),
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(24),
+                                          child: Stack(
+                                            alignment: Alignment.center,
+                                            children: [
+                                              if (_filterBarController.value < 0.9)
+                                                Opacity(
+                                                  opacity: (1.0 - _filterBarController.value).clamp(0.0, 1.0),
+                                                  child: SizedBox(
+                                                    width: 48,
+                                                    height: 48,
+                                                    child: Icon(
+                                                      Icons.satellite_alt_rounded,
+                                                      size: 20,
+                                                      color: theme.colorScheme.primary,
+                                                    ),
+                                                  ),
+                                                ),
+                                              if (_filterBarController.value > 0.1)
+                                                Opacity(
+                                                  opacity: _filterBarController.value,
+                                                  child: Row(
+                                                    children: [
+                                                      GestureDetector(
+                                                        onTap: _toggleFilterBar,
+                                                        behavior: HitTestBehavior.opaque,
+                                                        child: Container(
+                                                          width: 48,
+                                                          height: 48,
+                                                          alignment: Alignment.center,
+                                                          child: Icon(
+                                                            Icons.satellite_alt_rounded,
+                                                            size: 20,
+                                                            color: theme.colorScheme.primary,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      Expanded(
+                                                        child: _buildEarthFilterChips(theme, isDark),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            
             // Frosted Glass Bottom Navigation overlay (thumb-friendly absolute placement)
             Positioned(
               bottom: 0,
@@ -2157,7 +2278,7 @@ Widget _buildSidebarItem(
   }
 
 
-  Widget _buildEarthFilterBar(ThemeData theme, bool isDark) {
+  Widget _buildEarthFilterChips(ThemeData theme, bool isDark) {
     final filters = [
       {'name': 'Todos', 'value': 'Todos', 'icon': Icons.language_rounded},
       {'name': 'Satélite', 'value': 'Satélite', 'icon': Icons.satellite_alt_rounded},
@@ -2170,69 +2291,83 @@ Widget _buildSidebarItem(
         ? Colors.white.withOpacity(0.4)
         : Colors.black.withOpacity(0.4);
 
-    return ValueListenableBuilder<String>(
+    return ValueListenableBuilder<Set<String>>(
       valueListenable: VirtualTopography.earthFilterNotifier,
-      builder: (context, currentFilter, child) {
-        return Container(
-          width: double.infinity,
-          height: 48,
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF070D09) : const Color(0xFFF4F7F5),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(
-              color: theme.colorScheme.primary.withOpacity(0.1),
-            ),
-          ),
-          child: Row(
-            children: filters.map((filter) {
-              final filterName = filter['name'] as String;
-              final filterValue = filter['value'] as String;
-              final filterIcon = filter['icon'] as IconData;
-              final isSelected = currentFilter == filterValue;
+      builder: (context, activeLayers, child) {
+        final double expandedWidth = MediaQuery.of(context).size.width - 90.0;
 
-              return Expanded(
-                child: GestureDetector(
-                  onTap: () {
-                    VirtualTopography.earthFilterNotifier.value = filterValue;
-                  },
-                  child: Container(
-                    height: double.infinity,
-                    margin: EdgeInsets.zero,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? theme.colorScheme.primary
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          filterIcon,
-                          size: 13,
-                          color: isSelected
-                              ? theme.colorScheme.onPrimary
-                              : inactiveColor,
-                        ),
-                        const SizedBox(width: 3),
-                        Text(
-                          filterName,
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const NeverScrollableScrollPhysics(),
+          child: SizedBox(
+            width: expandedWidth,
+            child: Row(
+              children: filters.map((filter) {
+                final filterName = filter['name'] as String;
+                final filterValue = filter['value'] as String;
+                final filterIcon = filter['icon'] as IconData;
+
+                final bool isSelected = filterValue == 'Todos'
+                    ? activeLayers.containsAll({'Satélite', 'Clima', 'Vetor (3D)', 'Monitoramento'})
+                    : activeLayers.contains(filterValue);
+
+                return Expanded(
+                  child: GestureDetector(
+                    onTap: () {
+                      final newSet = Set<String>.from(activeLayers);
+                      if (filterValue == 'Todos') {
+                        if (isSelected) {
+                          newSet.clear();
+                        } else {
+                          newSet.addAll({'Satélite', 'Clima', 'Vetor (3D)', 'Monitoramento'});
+                        }
+                      } else {
+                        if (isSelected) {
+                          newSet.remove(filterValue);
+                        } else {
+                          newSet.add(filterValue);
+                        }
+                      }
+                      VirtualTopography.earthFilterNotifier.value = newSet;
+                    },
+                    child: Container(
+                      height: double.infinity,
+                      margin: EdgeInsets.zero,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? theme.colorScheme.primary
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(24),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            filterIcon,
+                            size: 13,
                             color: isSelected
                                 ? theme.colorScheme.onPrimary
                                 : inactiveColor,
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
+                            filterName,
+                            style: TextStyle(
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                              color: isSelected
+                                  ? theme.colorScheme.onPrimary
+                                  : inactiveColor,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                      ],
-                    ),
                   ),
-                ),
-              );
-            }).toList(),
+                );
+              }).toList(),
+            ),
           ),
         );
       },

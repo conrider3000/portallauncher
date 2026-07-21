@@ -6,6 +6,7 @@ import 'screens/onboarding_screen.dart';
 import 'theme/tropical_theme.dart';
 import 'utils/platform_helper.dart';
 import 'utils/theme_manager.dart';
+import 'widgets/context_header.dart';
 
 import 'package:flutter/services.dart';
 
@@ -35,6 +36,7 @@ class _PortalAppState extends State<PortalApp> {
   Future<void> _checkStatus() async {
     // Load theme preference on startup
     await ThemeManager.loadTheme();
+    await ContextHeader.loadHeaderMode();
 
     try {
       final prefs = await SharedPreferences.getInstance();

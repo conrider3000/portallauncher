@@ -7,6 +7,13 @@ import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/theme_manager.dart';
 import '../services/launcher_service.dart';
+import 'virtual_topography.dart';
+
+enum HeaderMode {
+  filter,
+  timeSpace,
+  none,
+}
 
 class MultiCalendarHelper {
   static String getMayanKinDate(DateTime date) {
@@ -233,8 +240,27 @@ class MultiCalendarHelper {
 class ContextHeader extends StatefulWidget {
   const ContextHeader({super.key});
 
-  // Notifier to notify parent widgets when the info details panel is open or closed
-  static final ValueNotifier<bool> isPanelOpenNotifier = ValueNotifier(false);
+  static final ValueNotifier<HeaderMode> isPanelOpenNotifier = ValueNotifier(HeaderMode.filter);
+  static final ValueNotifier<bool> isExtendedNotifier = ValueNotifier(false);
+  static final ValueNotifier<bool> locationUpdateNotifier = ValueNotifier(false);
+
+  static Future<void> saveHeaderMode(HeaderMode mode) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('portal_header_mode', mode.name);
+    } catch (_) {}
+  }
+
+  static Future<void> loadHeaderMode() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final modeStr = prefs.getString('portal_header_mode');
+      if (modeStr != null) {
+        final mode = HeaderMode.values.firstWhere((e) => e.name == modeStr, orElse: () => HeaderMode.filter);
+        isPanelOpenNotifier.value = mode;
+      }
+    } catch (_) {}
+  }
 
   @override
   State<ContextHeader> createState() => _ContextHeaderState();
@@ -245,11 +271,28 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
   late Timer _timer;
   String _weatherTemp = '--';
   String _weatherDesc = '--';
-  String _cityName = 'Curitiba, BR'; // Shown while GPS loads; replaced by cache or real location
+  String _cityName = 'Curitiba, Paraná, Brasil'; // Shown while GPS loads; replaced by cache or real location
+  String _onlyCityName = 'Curitiba';
   double _userLat = -25.4284;
   double _userLon = -49.2733;
+  double _apparentTemp = 21.0;
+  int _relativeHumidity = 65;
+  double _windSpeed = 12.0;
+  double _windDirection = 180.0;
+  double _surfacePressure = 1012.0;
+  double _uvIndex = 3.0;
+  String _sunriseTime = '06:45';
+  String _sunsetTime = '18:03';
+  double _userAltitude = 934.0;
+  double _gpsAccuracy = 15.0;
+  bool _isFahrenheit = false;
+  double _weatherTempCelsius = 15.0;
   bool _showPanel = false;
+  bool _isExtended = false;
   int _calendarSystemIndex = 0; // 0: Gregorian, 1: Chinese, 2: Hebrew, 3: Hijri
+  int _tapCount = 0;
+  Timer? _tapTimer;
+  final List<int> _tapTimestamps = [];
   late AnimationController _animationController;
   late Animation<double> _animation;
 
@@ -283,6 +326,9 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
         });
       }
     });
+    ContextHeader.isExtendedNotifier.addListener(_onExtendedChanged);
+    ContextHeader.locationUpdateNotifier.addListener(_onLocationUpdatedNotification);
+    ContextHeader.isPanelOpenNotifier.addListener(_onPanelOpenNotifierChanged);
     _initLocation();
   }
 
@@ -292,8 +338,14 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
     final cached = prefs.getString('portal_city_name');
     final cachedLat = prefs.getDouble('portal_last_lat');
     final cachedLon = prefs.getDouble('portal_last_lon');
+    final cachedOnlyCity = prefs.getString('portal_only_city_name');
     if (cached != null && mounted) {
-      setState(() => _cityName = cached);
+      setState(() {
+        _cityName = cached;
+        if (cachedOnlyCity != null) {
+          _onlyCityName = cachedOnlyCity;
+        }
+      });
     }
     if (cachedLat != null && cachedLon != null) {
       _userLat = cachedLat;
@@ -349,48 +401,127 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final address = data['address'] as Map<String, dynamic>?;
-        final city = address?['city'] ??
-            address?['town'] ??
-            address?['village'] ??
-            address?['municipality'] ??
-            address?['county'] ??
-            'GPS';
-        final country = address?['country_code']?.toString().toUpperCase() ?? '';
-        final name = '$city, $country';
+        final neighborhood = address?['suburb'] ?? address?['neighbourhood'] ?? address?['city_district'] ?? '';
+        final city = address?['city'] ?? address?['town'] ?? address?['village'] ?? address?['municipality'] ?? address?['county'] ?? '';
+        final state = address?['state'] ?? '';
+        final country = address?['country'] ?? '';
+
+        final parts = <String>[];
+        if (neighborhood.toString().isNotEmpty) parts.add(neighborhood.toString());
+        if (city.toString().isNotEmpty) parts.add(city.toString());
+        if (state.toString().isNotEmpty) parts.add(state.toString());
+        if (country.toString().isNotEmpty) parts.add(country.toString());
+        
+        final name = parts.isNotEmpty ? parts.join(', ') : 'Curitiba, Paraná, Brasil';
+        final cityStr = city.toString().isNotEmpty ? city.toString() : 'Curitiba';
+        
         if (mounted) {
-          setState(() => _cityName = name);
+          setState(() {
+            _cityName = name;
+            _onlyCityName = cityStr;
+          });
         }
-        // Cache for next launch
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('portal_city_name', name);
+        await prefs.setString('portal_only_city_name', cityStr);
         await prefs.setDouble('portal_last_lat', lat);
         await prefs.setDouble('portal_last_lon', lon);
       }
-    } catch (_) {
-      // Keep whatever we already have (cache or default)
-    }
+    } catch (_) {}
   }
 
   @override
   void dispose() {
     _timer.cancel();
+    ContextHeader.isExtendedNotifier.removeListener(_onExtendedChanged);
+    ContextHeader.locationUpdateNotifier.removeListener(_onLocationUpdatedNotification);
+    ContextHeader.isPanelOpenNotifier.removeListener(_onPanelOpenNotifierChanged);
     _animationController.dispose();
     super.dispose();
+  }
+
+  void _onPanelOpenNotifierChanged() {
+    if (!mounted) return;
+    final mode = ContextHeader.isPanelOpenNotifier.value;
+    setState(() {
+      _showPanel = (mode == HeaderMode.timeSpace);
+      if (_showPanel) {
+        _animationController.forward();
+      } else {
+        _animationController.reverse();
+      }
+    });
+  }
+
+  void _onExtendedChanged() {
+    if (mounted) {
+      setState(() {
+        _isExtended = ContextHeader.isExtendedNotifier.value;
+      });
+    }
+  }
+
+  void _onLocationUpdatedNotification() {
+    _initLocation();
   }
 
   Future<void> _fetchWeather(double lat, double lon) async {
     try {
       final uri = Uri.parse(
-          'https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current=temperature_2m,weather_code&timezone=auto');
+          'https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current=temperature_2m,weather_code,apparent_temperature,relative_humidity_2m,wind_speed_10m,wind_direction_10m,surface_pressure&daily=sunrise,sunset,uv_index_max&timezone=auto');
       final response = await http.get(uri);
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final temp = data['current']['temperature_2m'];
-        final code = data['current']['weather_code'];
+        final current = data['current'];
+        final daily = data['daily'];
+        
+        final temp = current['temperature_2m'];
+        final code = current['weather_code'];
+        final appTemp = current['apparent_temperature'] ?? temp;
+        final humidity = current['relative_humidity_2m'] ?? 65;
+        final windSp = current['wind_speed_10m'] ?? 12.0;
+        final windDir = current['wind_direction_10m'] ?? 180.0;
+        final press = current['surface_pressure'] ?? 1012.0;
+        
+        final altitude = data['elevation'] ?? 0.0;
+        
+        String sunrise = '06:45';
+        String sunset = '18:03';
+        double uvMax = 3.0;
+        
+        if (daily != null) {
+          if (daily['sunrise'] != null && (daily['sunrise'] as List).isNotEmpty) {
+            final String rawSunrise = daily['sunrise'][0];
+            if (rawSunrise.contains('T')) {
+              sunrise = rawSunrise.split('T')[1];
+            }
+          }
+          if (daily['sunset'] != null && (daily['sunset'] as List).isNotEmpty) {
+            final String rawSunset = daily['sunset'][0];
+            if (rawSunset.contains('T')) {
+              sunset = rawSunset.split('T')[1];
+            }
+          }
+          if (daily['uv_index_max'] != null && (daily['uv_index_max'] as List).isNotEmpty) {
+            uvMax = (daily['uv_index_max'][0] as num).toDouble();
+          }
+        }
 
         if (mounted) {
           setState(() {
-            _weatherTemp = '${(temp as num).toStringAsFixed(0)}°C';
+            _weatherTempCelsius = (temp as num).toDouble();
+            _weatherTemp = '${_weatherTempCelsius.toStringAsFixed(0)}°C';
+            _apparentTemp = (appTemp as num).toDouble();
+            _relativeHumidity = (humidity as num).toInt();
+            _windSpeed = (windSp as num).toDouble();
+            _windDirection = (windDir as num).toDouble();
+            _surfacePressure = (press as num).toDouble();
+            _uvIndex = uvMax;
+            _sunriseTime = sunrise;
+            _sunsetTime = sunset;
+            if (altitude > 0) {
+              _userAltitude = (altitude as num).toDouble();
+            }
             _interpretWeatherCode(code as int);
           });
         }
@@ -416,20 +547,25 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
 
   void _togglePanel() {
     setState(() {
-      _showPanel = !_showPanel;
-      if (_showPanel) {
-        ContextHeader.isPanelOpenNotifier.value = true;
+      final currentMode = ContextHeader.isPanelOpenNotifier.value;
+      if (currentMode == HeaderMode.none) {
+        return;
+      }
+      final nextMode = currentMode == HeaderMode.filter
+          ? HeaderMode.timeSpace
+          : HeaderMode.filter;
+
+      ContextHeader.isPanelOpenNotifier.value = nextMode;
+      _showPanel = (nextMode == HeaderMode.timeSpace);
+
+      if (nextMode == HeaderMode.timeSpace) {
         Future.delayed(const Duration(milliseconds: 220), () {
           if (mounted && _showPanel) {
             _animationController.forward();
           }
         });
       } else {
-        _animationController.reverse().then((_) {
-          if (!_showPanel) {
-            ContextHeader.isPanelOpenNotifier.value = false;
-          }
-        });
+        _animationController.reverse();
       }
     });
   }
@@ -518,14 +654,225 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
     return Icons.wb_cloudy_rounded;
   }
 
+  String _getMoonZodiacSign(DateTime date) {
+    final jd = MultiCalendarHelper.getJulianDay(date);
+    final double daysSinceEpoch = jd - 2451545.0;
+    final double moonLong = (13.17639 * daysSinceEpoch + 218.316) % 360.0;
+    final int signIndex = (moonLong / 30.0).floor() % 12;
+    const signs = [
+      'Áries ♈', 'Touro ♉', 'Gêmeos ♊', 'Câncer ♋', 
+      'Leão ♌', 'Virgem ♍', 'Libra ♎', 'Escorpião ♏', 
+      'Sagitário ♐', 'Capricórnio ♑', 'Aquário ♒', 'Peixes ♓'
+    ];
+    return signs[signIndex];
+  }
+
+  String _getBiome(double lat, double lon) {
+    if (lat >= -26.5 && lat <= -24.0 && lon >= -50.0 && lon <= -48.0) {
+      return 'Floresta de Araucárias / Mata Atlântica';
+    }
+    
+    final absLat = lat.abs();
+    
+    if (absLat > 60.0) {
+      return 'Tundra / Taiga ou Deserto Polar';
+    }
+    if (absLat > 35.0 && absLat <= 60.0) {
+      return 'Clima Temperado (Floresta Decídua / Campos)';
+    }
+    if (absLat > 18.0 && absLat <= 35.0) {
+      if (lat >= 15.0 && lat <= 30.0 && lon >= -15.0 && lon <= 40.0) {
+        return 'Deserto do Saara / Árido';
+      }
+      if (lat >= 15.0 && lat <= 32.0 && lon >= 35.0 && lon <= 60.0) {
+        return 'Deserto Árido / Arbustivo';
+      }
+      if (lat >= -30.0 && lat <= -18.0 && lon >= 115.0 && lon <= 145.0) {
+        return 'Deserto Australiano / Outback';
+      }
+      return 'Zonas Subtropicais (Campos / Florestas Secas)';
+    }
+    if (lat >= -15.0 && lat <= 5.0 && lon >= -80.0 && lon <= -35.0) {
+      return 'Floresta Tropical Úmida (Amazônia)';
+    }
+    if (lat >= -5.0 && lat <= 5.0 && lon >= 10.0 && lon <= 30.0) {
+      return 'Floresta Tropical Úmida (Congo)';
+    }
+    if (lat >= -10.0 && lat <= 20.0 && lon >= 95.0 && lon <= 140.0) {
+      return 'Floresta Tropical / Monções';
+    }
+    
+    return 'Savana Tropical / Cerrado';
+  }
+
+  int _estimateAQI() {
+    final hour = _currentTime.hour;
+    if (hour >= 7 && hour <= 10) return 42;
+    if (hour >= 17 && hour <= 20) return 48;
+    return 24;
+  }
+
+  String _getAQIDescription(int aqi) {
+    if (aqi <= 50) return 'Bom';
+    if (aqi <= 100) return 'Moderado';
+    return 'Inadequado';
+  }
+
+  String _estimateVisibility() {
+    final desc = _weatherDesc.toLowerCase();
+    if (desc.contains('chuva') || desc.contains('rain')) return '6.0 km';
+    if (desc.contains('nevoeiro') || desc.contains('fog')) return '1.5 km';
+    if (desc.contains('nublado') || desc.contains('cloudy')) return '10.0 km';
+    return '16.0 km';
+  }
+
+  String _getWindDirectionLabel(double degree) {
+    const directions = ['N', 'NE', 'E', 'SE', 'S', 'SO', 'O', 'NO'];
+    final idx = ((degree + 22.5) % 360 / 45).floor();
+    return directions[idx.clamp(0, 7)];
+  }
+
+  String _getFormattedLocation() {
+    if (_cityName == 'Curitiba, BR') {
+      return 'Curitiba, Paraná, Brasil';
+    }
+    return _cityName;
+  }
+
+  String _getSunZodiacSign(DateTime date) {
+    final month = date.month;
+    final day = date.day;
+    if ((month == 3 && day >= 21) || (month == 4 && day <= 19)) return 'Áries ♈';
+    if ((month == 4 && day >= 20) || (month == 5 && day <= 20)) return 'Touro ♉';
+    if ((month == 5 && day >= 21) || (month == 6 && day <= 20)) return 'Gêmeos ♊';
+    if ((month == 6 && day >= 21) || (month == 7 && day <= 22)) return 'Câncer ♋';
+    if ((month == 7 && day >= 23) || (month == 8 && day <= 22)) return 'Leão ♌';
+    if ((month == 8 && day >= 23) || (month == 9 && day <= 22)) return 'Virgem ♍';
+    if ((month == 9 && day >= 23) || (month == 10 && day <= 22)) return 'Libra ♎';
+    if ((month == 10 && day >= 23) || (month == 11 && day <= 21)) return 'Escorpião ♏';
+    if ((month == 11 && day >= 22) || (month == 12 && day <= 21)) return 'Sagitário ♐';
+    if ((month == 12 && day >= 22) || (month == 1 && day <= 19)) return 'Capricórnio ♑';
+    if ((month == 1 && day >= 20) || (month == 2 && day <= 18)) return 'Aquário ♒';
+    return 'Peixes ♓';
+  }
+
+  Widget _buildExtendedInfoRow({
+    required IconData icon,
+    required String value,
+    required Color textColor,
+    required ThemeData theme,
+    VoidCallback? onTap,
+  }) {
+    final child = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 18,
+            child: Center(
+              child: Icon(
+                icon,
+                size: 14,
+                color: theme.colorScheme.primary,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+                color: textColor,
+                height: 1.1,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (onTap != null) {
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(6),
+        child: child,
+      );
+    }
+    return child;
+  }
+
+  String _getTimezoneOffsetLabel() {
+    final offset = _currentTime.timeZoneOffset;
+    final hours = offset.inHours;
+    final minutes = offset.inMinutes.abs() % 60;
+    final sign = hours >= 0 ? '+' : '-';
+    return 'UTC$sign${hours.abs().toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}';
+  }
+
+  void _handleSunMoonTap() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _tapTimestamps.add(now);
+    
+    _tapTimestamps.removeWhere((ts) => now - ts > 600);
+
+    if (_tapTimestamps.length >= 3) {
+      _tapTimestamps.clear();
+      _tapTimer?.cancel();
+      setState(() {
+        final nextMode = ContextHeader.isPanelOpenNotifier.value == HeaderMode.none
+            ? HeaderMode.timeSpace
+            : HeaderMode.none;
+        ContextHeader.isPanelOpenNotifier.value = nextMode;
+        _showPanel = (nextMode == HeaderMode.timeSpace);
+        if (nextMode == HeaderMode.timeSpace) {
+          _animationController.forward();
+        } else {
+          _animationController.reverse();
+        }
+      });
+      return;
+    }
+
+    _tapTimer?.cancel();
+    _tapTimer = Timer(const Duration(milliseconds: 220), () {
+      if (_tapTimestamps.length == 1) {
+        _togglePanel();
+      } else if (_tapTimestamps.length == 2) {
+        final newMode = Theme.of(context).brightness == Brightness.dark ? ThemeMode.light : ThemeMode.dark;
+        ThemeManager.toggleTheme(newMode);
+      }
+      _tapTimestamps.clear();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    final textColor = isDark ? const Color(0xFFE2E8F0) : const Color(0xFF1E293B);
 
     final sunColor = Colors.orangeAccent;
     final moonColor = Colors.white;
     final moonInfo = _getMoonPhaseInfo();
+
+    final moonAge = (DateTime.now().toUtc().difference(DateTime.utc(2000, 1, 6, 18, 14)).inMilliseconds / (1000 * 60 * 60 * 24)) % 29.530588853;
+    final moonBrightness = (1.0 - math.cos((moonAge / 29.530588853) * 2 * math.pi)) / 2.0 * 100.0;
+    final moonSign = _getMoonZodiacSign(_currentTime);
+    final sunSign = _getSunZodiacSign(_currentTime);
+    final biome = _getBiome(_userLat, _userLon);
+    final aqi = _estimateAQI();
+    final aqiDesc = _getAQIDescription(aqi);
+    final visibility = _estimateVisibility();
+    final windDirectionLabel = _getWindDirectionLabel(_windDirection);
+
+    final String tempValueStr = _isFahrenheit
+        ? '${(_weatherTempCelsius * 9.0 / 5.0 + 32.0).toStringAsFixed(0)}°F (Sensação: ${(_apparentTemp * 9.0 / 5.0 + 32.0).toStringAsFixed(1)}°F)'
+        : '${_weatherTempCelsius.toStringAsFixed(0)}°C (Sensação: ${_apparentTemp.toStringAsFixed(1)}°C)';
 
     return Padding(
       padding: const EdgeInsets.all(8.0),
@@ -538,11 +885,7 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
             duration: const Duration(milliseconds: 250),
             curve: Curves.easeInOut,
             child: GestureDetector(
-              onTap: _togglePanel,
-              onDoubleTap: () {
-                final newMode = isDark ? ThemeMode.light : ThemeMode.dark;
-                ThemeManager.toggleTheme(newMode);
-              },
+              onTap: _handleSunMoonTap,
               onSecondaryTap: _togglePanel,
               child: Tooltip(
                 message: isDark ? 'Fase atual: ${moonInfo['name']}' : 'Dê dois cliques para alternar o tema',
@@ -550,7 +893,7 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
                   duration: const Duration(milliseconds: 300),
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF1C1C1E) : Colors.white, // White background in light mode
+                    color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
@@ -580,11 +923,9 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
               // Calculate responsive slide offset
               final Offset offset;
               if (_showPanel) {
-                // Entry: Slide from left (-1.0) to center (0.0)
                 final double progress = Curves.easeOutCubic.transform(_animationController.value);
                 offset = Offset(progress - 1.0, 0.0);
               } else {
-                // Exit: Slide from center (0.0) to right (1.0)
                 final double progress = Curves.easeInCubic.transform(1.0 - _animationController.value);
                 offset = Offset(progress, 0.0);
               }
@@ -606,10 +947,10 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
               child: Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF070D09) : const Color(0xFFF4F7F5), // Color matching other bars
-                  borderRadius: BorderRadius.circular(24), // BorderRadius matching other bars
+                  color: isDark ? const Color(0xFF070D09) : const Color(0xFFF4F7F5),
+                  borderRadius: BorderRadius.circular(24),
                   border: Border.all(
-                    color: theme.colorScheme.primary.withOpacity(0.12), // Border matching other bars
+                    color: theme.colorScheme.primary.withOpacity(0.12),
                     width: 1.5,
                   ),
                 ),
@@ -617,158 +958,383 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                     // Line 1: Real-time clock with seconds + timezone + Moon Phase
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        InkWell(
-                          onTap: () => LauncherService.openClockApp(),
-                          borderRadius: BorderRadius.circular(6),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            children: [
-                              SizedBox(
-                                width: 18,
-                                child: Center(
-                                  child: Icon(
-                                    Icons.access_time_rounded,
-                                    size: 14,
-                                    color: theme.colorScheme.primary,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                "${_currentTime.hour.toString().padLeft(2, '0')}:${_currentTime.minute.toString().padLeft(2, '0')}:${_currentTime.second.toString().padLeft(2, '0')}",
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.bold,
-                                  color: theme.colorScheme.onSurface,
-                                  letterSpacing: 0.5,
-                                  height: 1.1,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Icon(
-                          moonInfo['icon'],
-                          size: 14,
-                          color: isDark ? moonColor.withOpacity(0.9) : theme.colorScheme.primary.withOpacity(0.8),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          moonInfo['name'],
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: theme.colorScheme.onSurface.withOpacity(0.7),
-                            height: 1.1,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
+                      // Line 1: Real-time clock with seconds + Timezone Label + Expand/Collapse Button
+                     Row(
+                       crossAxisAlignment: CrossAxisAlignment.center,
+                       children: [
+                         InkWell(
+                           onTap: () => LauncherService.openClockApp(),
+                           borderRadius: BorderRadius.circular(6),
+                           child: Row(
+                             mainAxisSize: MainAxisSize.min,
+                             crossAxisAlignment: CrossAxisAlignment.center,
+                             children: [
+                               SizedBox(
+                                 width: 18,
+                                 child: Center(
+                                   child: Icon(
+                                     Icons.access_time_rounded,
+                                     size: 14,
+                                     color: theme.colorScheme.primary,
+                                   ),
+                                 ),
+                               ),
+                               const SizedBox(width: 6),
+                               Text(
+                                 "${_currentTime.hour.toString().padLeft(2, '0')}:${_currentTime.minute.toString().padLeft(2, '0')}:${_currentTime.second.toString().padLeft(2, '0')}",
+                                 style: TextStyle(
+                                   fontSize: 13,
+                                   fontWeight: FontWeight.bold,
+                                   color: textColor,
+                                   letterSpacing: 0.5,
+                                   height: 1.1,
+                                 ),
+                               ),
+                             ],
+                           ),
+                         ),
+                         const SizedBox(width: 16),
+                         if (_isExtended) ...[
+                           Icon(
+                             Icons.public_rounded,
+                             size: 14,
+                             color: theme.colorScheme.primary.withOpacity(0.8),
+                           ),
+                           const SizedBox(width: 6),
+                           Text(
+                             _getTimezoneOffsetLabel(),
+                             style: TextStyle(
+                               fontSize: 12,
+                               fontWeight: FontWeight.bold,
+                               color: textColor,
+                               height: 1.1,
+                             ),
+                           ),
+                         ] else ...[
+                           Icon(
+                             moonInfo['icon'],
+                             size: 14,
+                             color: isDark ? moonColor.withOpacity(0.9) : theme.colorScheme.primary.withOpacity(0.8),
+                           ),
+                           const SizedBox(width: 6),
+                           Text(
+                             moonInfo['name'],
+                             style: TextStyle(
+                               fontSize: 12,
+                               fontWeight: FontWeight.w600,
+                               color: textColor,
+                               height: 1.1,
+                             ),
+                           ),
+                         ],
+                         const Spacer(),
+                         GestureDetector(
+                           onTap: () {
+                             final bool targetExtendedState = !_isExtended;
+                             if (targetExtendedState) {
+                               // Close map overlays if opening extended state
+                               VirtualTopography.closeOverlaysNotifier.value = 
+                                   !VirtualTopography.closeOverlaysNotifier.value;
+                             }
+                             setState(() {
+                               _isExtended = targetExtendedState;
+                               ContextHeader.isExtendedNotifier.value = targetExtendedState;
+                             });
+                           },
+                           child: Container(
+                             padding: const EdgeInsets.all(4),
+                             decoration: BoxDecoration(
+                               color: theme.colorScheme.primary.withOpacity(0.12),
+                               shape: BoxShape.circle,
+                             ),
+                             child: Icon(
+                               _isExtended ? Icons.unfold_less_rounded : Icons.unfold_more_rounded,
+                               size: 13,
+                               color: theme.colorScheme.primary,
+                             ),
+                           ),
+                         ),
+                       ],
+                     ),
+                     const SizedBox(height: 6),
 
-                    // Line 2: Date with Calendar cycle support
-                    InkWell(
-                      onTap: _cycleCalendar,
-                      borderRadius: BorderRadius.circular(6),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 2.0),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            SizedBox(
-                              width: 18,
-                              child: Center(
-                                child: _getCalendarSymbolWidget(context),
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                _getCalendarDateString(),
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: theme.colorScheme.onSurface,
-                                  height: 1.1,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
+                     if (_isExtended) ...[
+                       // Extended Layout - natural wrapping, one item per line, custom ordered
+                       Column(
+                         crossAxisAlignment: CrossAxisAlignment.start,
+                         mainAxisSize: MainAxisSize.min,
+                         children: [
+                           // 1. Calendar
+                           InkWell(
+                             onTap: _cycleCalendar,
+                             borderRadius: BorderRadius.circular(6),
+                             child: Row(
+                               crossAxisAlignment: CrossAxisAlignment.center,
+                               children: [
+                                 SizedBox(
+                                   width: 18,
+                                   child: Center(
+                                     child: _getCalendarSymbolWidget(context),
+                                   ),
+                                 ),
+                                 const SizedBox(width: 8),
+                                 Expanded(
+                                   child: Text(
+                                     _getCalendarDateString(),
+                                     style: TextStyle(
+                                       fontSize: 12,
+                                       fontWeight: FontWeight.bold,
+                                       color: textColor,
+                                       height: 1.1,
+                                     ),
+                                     maxLines: 1,
+                                     overflow: TextOverflow.ellipsis,
+                                   ),
+                                 ),
+                               ],
+                             ),
+                           ),
+                           const SizedBox(height: 4),
 
-                    // Line 3: Location and Weather (with dedicated icons)
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                          width: 18,
-                          child: Center(
-                            child: Icon(
-                              Icons.location_on_rounded,
-                              size: 14,
-                              color: theme.colorScheme.primary.withOpacity(0.8),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          _cityName,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: theme.colorScheme.onSurface.withOpacity(0.8),
-                            height: 1.1,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Icon(
-                          Icons.thermostat_rounded,
-                          size: 14,
-                          color: theme.colorScheme.primary.withOpacity(0.8),
-                        ),
-                        const SizedBox(width: 2),
-                        Text(
-                          _weatherTemp,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: theme.colorScheme.onSurface,
-                            height: 1.1,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Icon(
-                          _getWeatherIconData() ?? Icons.wb_sunny_rounded,
-                          size: 14,
-                          color: theme.colorScheme.primary.withOpacity(0.8),
-                        ),
-                        const SizedBox(width: 2),
-                        Expanded(
-                          child: Text(
-                            _weatherDesc,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: theme.colorScheme.onSurface.withOpacity(0.8),
-                              height: 1.1,
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
+                           // 2. Solar Cycle (Nascer: ... • Pôr: ...)
+                           _buildExtendedInfoRow(
+                             icon: Icons.wb_twilight_rounded,
+                             value: 'Nascer: $_sunriseTime  •  Pôr: $_sunsetTime',
+                             textColor: textColor,
+                             theme: theme,
+                           ),
+                           const SizedBox(height: 4),
+
+                           // 3. Location
+                           _buildExtendedInfoRow(
+                             icon: Icons.location_on_rounded,
+                             value: _getFormattedLocation(),
+                             textColor: textColor,
+                             theme: theme,
+                           ),
+                           const SizedBox(height: 4),
+
+                           // 4. Biome
+                           _buildExtendedInfoRow(
+                             icon: Icons.forest_rounded,
+                             value: biome,
+                             textColor: textColor,
+                             theme: theme,
+                           ),
+                           const SizedBox(height: 4),
+
+                           // 5. Coordinates (formatted as: Sul: X°, Oeste: Y°)
+                           _buildExtendedInfoRow(
+                             icon: Icons.explore_rounded,
+                             value: '${_userLat < 0 ? 'Sul' : 'Norte'}: ${_userLat.abs().toStringAsFixed(5)}°, ${_userLon < 0 ? 'Oeste' : 'Leste'}: ${_userLon.abs().toStringAsFixed(5)}°',
+                             textColor: textColor,
+                             theme: theme,
+                           ),
+                           const SizedBox(height: 4),
+
+                           // 6. GPS Accuracy (Precisão GPS ± X m)
+                           _buildExtendedInfoRow(
+                             icon: Icons.gps_fixed_rounded,
+                             value: 'Precisão GPS ± ${_gpsAccuracy.toStringAsFixed(1)} m',
+                             textColor: textColor,
+                             theme: theme,
+                           ),
+                           const SizedBox(height: 4),
+
+                           // 7. Altitude (X m de Altitude)
+                           _buildExtendedInfoRow(
+                             icon: Icons.landscape_rounded,
+                             value: '${_userAltitude.toStringAsFixed(1)} m de Altitude',
+                             textColor: textColor,
+                             theme: theme,
+                           ),
+                           const SizedBox(height: 4),
+
+                           // 8. Temperature (Unit toggleable on tap)
+                           _buildExtendedInfoRow(
+                             icon: Icons.thermostat_rounded,
+                             value: tempValueStr,
+                             textColor: textColor,
+                             theme: theme,
+                             onTap: () {
+                               setState(() {
+                                 _isFahrenheit = !_isFahrenheit;
+                               });
+                             },
+                           ),
+                           const SizedBox(height: 4),
+
+                           // 9. Weather Description (Clima)
+                           _buildExtendedInfoRow(
+                             icon: _getWeatherIconData() ?? Icons.wb_sunny_rounded,
+                             value: _weatherDesc,
+                             textColor: textColor,
+                             theme: theme,
+                           ),
+                           const SizedBox(height: 4),
+
+                           // 10. Wind
+                           _buildExtendedInfoRow(
+                             icon: Icons.air_rounded,
+                             value: 'Vento: ${_windSpeed.toStringAsFixed(1)} km/h ($windDirectionLabel)',
+                             textColor: textColor,
+                             theme: theme,
+                           ),
+                           const SizedBox(height: 4),
+
+                           // 11. Humidity
+                           _buildExtendedInfoRow(
+                             icon: Icons.water_drop_rounded,
+                             value: '$_relativeHumidity% de Humidade Relativa do Ar',
+                             textColor: textColor,
+                             theme: theme,
+                           ),
+                           const SizedBox(height: 4),
+
+                           // 12. Air Quality
+                           _buildExtendedInfoRow(
+                             icon: Icons.science_rounded,
+                             value: '$aqi AQI Qualidade do ar $aqiDesc',
+                             textColor: textColor,
+                             theme: theme,
+                           ),
+                           const SizedBox(height: 4),
+
+                           // 13. Pressure
+                           _buildExtendedInfoRow(
+                             icon: Icons.speed_rounded,
+                             value: '${_surfacePressure.toStringAsFixed(0)} hPa de Pressão Atmosférica',
+                             textColor: textColor,
+                             theme: theme,
+                           ),
+                           const SizedBox(height: 4),
+
+                           // 14. UV Index
+                           _buildExtendedInfoRow(
+                             icon: Icons.wb_sunny_outlined,
+                             value: '${_uvIndex.toStringAsFixed(1)} índice de UV máximo',
+                             textColor: textColor,
+                             theme: theme,
+                           ),
+                           const SizedBox(height: 4),
+
+                           // 15. Visibility
+                           _buildExtendedInfoRow(
+                             icon: Icons.visibility_rounded,
+                             value: '$visibility de Visibilidade',
+                             textColor: textColor,
+                             theme: theme,
+                           ),
+                           const SizedBox(height: 4),
+
+                           // 16. Moon Phase & Zodiac Signs
+                           _buildExtendedInfoRow(
+                             icon: moonInfo['icon'],
+                             value: '${moonInfo['symbol']} ${moonInfo['name']} (${moonBrightness.toStringAsFixed(1)}% iluminada) • Signo da Lua: $moonSign • Signo Solar: $sunSign',
+                             textColor: textColor,
+                             theme: theme,
+                           ),
+                         ],
+                       ),
+                     ] else ...[
+                       // Line 2: Date with Calendar cycle support
+                       InkWell(
+                         onTap: _cycleCalendar,
+                         borderRadius: BorderRadius.circular(6),
+                         child: Padding(
+                           padding: const EdgeInsets.symmetric(vertical: 2.0),
+                           child: Row(
+                             crossAxisAlignment: CrossAxisAlignment.center,
+                             children: [
+                               SizedBox(
+                                 width: 18,
+                                 child: Center(
+                                   child: _getCalendarSymbolWidget(context),
+                                 ),
+                               ),
+                               const SizedBox(width: 6),
+                               Expanded(
+                                 child: Text(
+                                   _getCalendarDateString(),
+                                   style: TextStyle(
+                                     fontSize: 12,
+                                     fontWeight: FontWeight.w600,
+                                     color: textColor,
+                                     height: 1.1,
+                                   ),
+                                   maxLines: 1,
+                                   overflow: TextOverflow.ellipsis,
+                                 ),
+                               ),
+                             ],
+                           ),
+                         ),
+                       ),
+                       const SizedBox(height: 6),
+
+                       // Line 3: Location and Weather (with dedicated icons)
+                       Row(
+                         crossAxisAlignment: CrossAxisAlignment.center,
+                         children: [
+                           SizedBox(
+                             width: 18,
+                             child: Center(
+                               child: Icon(
+                                 Icons.location_on_rounded,
+                                 size: 14,
+                                 color: theme.colorScheme.primary.withOpacity(0.8),
+                               ),
+                             ),
+                           ),
+                           const SizedBox(width: 6),
+                            Text(
+                              _onlyCityName,
+                             style: TextStyle(
+                               fontSize: 12,
+                               fontWeight: FontWeight.w600,
+                               color: textColor,
+                               height: 1.1,
+                             ),
+                           ),
+                           const SizedBox(width: 12),
+                           Icon(
+                             Icons.thermostat_rounded,
+                             size: 14,
+                             color: theme.colorScheme.primary.withOpacity(0.8),
+                           ),
+                           const SizedBox(width: 2),
+                           Text(
+                             _weatherTemp,
+                             style: TextStyle(
+                               fontSize: 12,
+                               fontWeight: FontWeight.bold,
+                               color: textColor,
+                               height: 1.1,
+                             ),
+                           ),
+                           const SizedBox(width: 12),
+                           Icon(
+                             _getWeatherIconData() ?? Icons.wb_sunny_rounded,
+                             size: 14,
+                             color: theme.colorScheme.primary.withOpacity(0.8),
+                           ),
+                           const SizedBox(width: 2),
+                           Expanded(
+                             child: Text(
+                               _weatherDesc,
+                               style: TextStyle(
+                                 fontSize: 12,
+                                 fontWeight: FontWeight.w600,
+                                 color: textColor,
+                                 height: 1.1,
+                               ),
+                               maxLines: 1,
+                               overflow: TextOverflow.ellipsis,
+                             ),
+                           ),
+                         ],
+                       ),
+                     ],
                   ],
                 ),
               ),

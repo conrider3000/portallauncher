@@ -8,21 +8,24 @@ import 'dart:convert';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../services/launcher_service.dart';
+import 'context_header.dart';
 
 class VirtualTopography extends StatefulWidget {
   const VirtualTopography({super.key});
 
   // Global map search query notifier to center the globe on matching locations
   static final ValueNotifier<String> mapSearchQueryNotifier = ValueNotifier('');
-  static final ValueNotifier<String> earthFilterNotifier = ValueNotifier('Todos');
+  static final ValueNotifier<Set<String>> earthFilterNotifier = ValueNotifier({'Satélite', 'Clima', 'Vetor (3D)', 'Monitoramento'});
   static final ValueNotifier<String?> directSearchTrigger = ValueNotifier<String?>(null);
   static final ValueNotifier<bool> toggleRotationTrigger = ValueNotifier<bool>(true);
+  static final ValueNotifier<bool> closeOverlaysNotifier = ValueNotifier<bool>(false);
+  static VoidCallback? onTapCallback;
 
   @override
   State<VirtualTopography> createState() => _VirtualTopographyState();
 }
 
-class _VirtualTopographyState extends State<VirtualTopography> with SingleTickerProviderStateMixin {
+class _VirtualTopographyState extends State<VirtualTopography> with SingleTickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   late AnimationController _animationController;
   double _manualRotationX = 0.0;
   double _manualRotationY = 0.0;
@@ -117,10 +120,12 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
       _downloadEarthTexture();
     });
 
+    _loadCachedFilter();
     VirtualTopography.mapSearchQueryNotifier.addListener(_onMapSearchQueryChanged);
     VirtualTopography.earthFilterNotifier.addListener(_onFilterChanged);
     VirtualTopography.directSearchTrigger.addListener(_onDirectSearchTriggered);
     VirtualTopography.toggleRotationTrigger.addListener(_onToggleRotationChanged);
+    VirtualTopography.closeOverlaysNotifier.addListener(_onCloseOverlays);
     _initializeUserCoordinates();
   }
 
@@ -130,10 +135,19 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     VirtualTopography.earthFilterNotifier.removeListener(_onFilterChanged);
     VirtualTopography.directSearchTrigger.removeListener(_onDirectSearchTriggered);
     VirtualTopography.toggleRotationTrigger.removeListener(_onToggleRotationChanged);
+    VirtualTopography.closeOverlaysNotifier.removeListener(_onCloseOverlays);
     _animationController.dispose();
     _popupTimer?.cancel();
     _cloudsRefreshTimer?.cancel();
     super.dispose();
+  }
+
+  void _onCloseOverlays() {
+    if (mounted) {
+      setState(() {
+        _selectedGeoPoint = null;
+      });
+    }
   }
 
   Future<void> _initializeUserCoordinates() async {
@@ -166,10 +180,30 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     } catch (_) {}
   }
 
-  void _onFilterChanged() {
+  Future<void> _loadCachedFilter() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedFilters = prefs.getStringList('portal_earth_active_layers');
+      if (savedFilters != null) {
+        if (mounted) {
+          setState(() {
+            VirtualTopography.earthFilterNotifier.value = savedFilters.toSet();
+          });
+        } else {
+          VirtualTopography.earthFilterNotifier.value = savedFilters.toSet();
+        }
+      }
+    } catch (_) {}
+  }
+
+  void _onFilterChanged() async {
     if (mounted) {
       setState(() {});
     }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('portal_earth_active_layers', VirtualTopography.earthFilterNotifier.value.toList());
+    } catch (_) {}
   }
 
   void _onToggleRotationChanged() {
@@ -340,7 +374,6 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
             _manualRotationY = -lonRad - math.pi - autoRotY;
             _manualRotationX = latRad - 0.2;
             _zoom = 1.1; // Reduced from 1.35 to prevent details card overlap
-            VirtualTopography.earthFilterNotifier.value = 'Monitoramento';
           });
         }
       }
@@ -565,7 +598,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     lon ??= -49.2733;
 
     // Center instantly on cache/last position
-    _centerOnCoords(lat, lon);
+    _centerOnCoords(lat, lon, setSelected: false);
 
     // Fetch fresh position in the background
     try {
@@ -573,11 +606,17 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
         desiredAccuracy: LocationAccuracy.high,
         timeLimit: const Duration(seconds: 5),
       );
-      _centerOnCoords(position.latitude, position.longitude);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble('portal_last_lat', position.latitude);
+      await prefs.setDouble('portal_last_lon', position.longitude);
+      // Trigger location update notifier
+      ContextHeader.locationUpdateNotifier.value = !ContextHeader.locationUpdateNotifier.value;
+
+      _centerOnCoords(position.latitude, position.longitude, setSelected: false);
     } catch (_) {}
   }
 
-  Future<void> _centerOnCoords(double lat, double lon) async {
+  Future<void> _centerOnCoords(double lat, double lon, {bool setSelected = true}) async {
     String cityName = 'Curitiba, BR';
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -607,6 +646,13 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
           final city = address?['city'] ?? address?['town'] ?? address?['village'] ?? address?['municipality'] ?? 'Curitiba';
           final country = address?['country_code']?.toString().toUpperCase() ?? 'BR';
           cityName = '$city, $country';
+          
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('portal_city_name', cityName);
+          await prefs.setDouble('portal_last_lat', lat);
+          await prefs.setDouble('portal_last_lon', lon);
+          // Notify ContextHeader
+          ContextHeader.locationUpdateNotifier.value = !ContextHeader.locationUpdateNotifier.value;
         }
       } catch (_) {}
     }
@@ -632,9 +678,12 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
         _manualRotationY = -lonRad - math.pi - autoRotY;
         _manualRotationX = latRad - 0.2;
         _zoom = 1.1;
-        _selectedGeoPoint = userPoint;
+        if (setSelected) {
+          _selectedGeoPoint = userPoint;
+        } else {
+          _selectedGeoPoint = null;
+        }
         _animationController.stop();
-        VirtualTopography.earthFilterNotifier.value = 'Monitoramento';
       });
     }
   }
@@ -678,6 +727,9 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
   }
 
   void _handleTapDown(TapDownDetails details, double width, double height) {
+    if (VirtualTopography.onTapCallback != null) {
+      VirtualTopography.onTapCallback!();
+    }
     if (_showFlatMap) return;
     final center = Offset(width / 2, height / 2);
     final radius = ((width - 32) / 2) * _zoom;
@@ -689,7 +741,8 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     Map<String, dynamic>? closestPoint;
     double minDistance = 30.0;
 
-    if (VirtualTopography.earthFilterNotifier.value == 'Monitoramento') {
+    final bool showMonitoring = VirtualTopography.earthFilterNotifier.value.contains('Monitoramento');
+    if (showMonitoring) {
       for (var gp in _geoPoints) {
         final double latRad = gp['lat'] * math.pi / 180.0;
         final double lonRad = gp['lon'] * math.pi / 180.0;
@@ -754,7 +807,11 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
   }
 
   @override
+  bool get wantKeepAlive => true;
+
+  @override
   Widget build(BuildContext context) {
+    super.build(context);
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
@@ -1112,7 +1169,7 @@ class _TexturedGlobePainter extends CustomPainter {
   final Color themeColor;
   final Color accentColor;
   final double zoom;
-  final String filter;
+  final Set<String> filter;
   final bool hasSelection;
 
   _TexturedGlobePainter({
@@ -1218,9 +1275,10 @@ class _TexturedGlobePainter extends CustomPainter {
       }
     }
 
-    final bool showEarth = filter != 'Vetor (3D)';
-    final bool showClouds = filter == 'Clima' || filter == 'Todos';
-    final bool showGrid = filter == 'Vetor (3D)';
+    final bool showEarth = filter.contains('Satélite');
+    final bool showClouds = filter.contains('Clima');
+    final bool showGrid = filter.contains('Vetor (3D)');
+    final bool showMonitoring = filter.contains('Monitoramento');
 
     if (indices.isNotEmpty) {
       if (showEarth) {
@@ -1296,6 +1354,7 @@ class _TexturedGlobePainter extends CustomPainter {
 
         canvas.save();
         canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: radius)));
+        _drawContinentOutlines(canvas, radius, rotY, rotX, cx, cy);
         for (int lat = 0; lat < latSegments; lat++) {
           for (int lon = 0; lon < lonSegments; lon++) {
             final int p00 = lat * (lonSegments + 1) + lon;
@@ -1329,7 +1388,8 @@ class _TexturedGlobePainter extends CustomPainter {
     final textPainter = TextPainter(textDirection: TextDirection.ltr);
 
     for (var gp in geoPoints) {
-      if (filter != 'Monitoramento') continue;
+      final bool isGPSPoint = gp['project'] == 'Receptor GPS Local';
+      if (!filter.contains('Monitoramento') && !isGPSPoint) continue;
 
       final double latRad = gp['lat'] * math.pi / 180.0;
       final double lonRad = gp['lon'] * math.pi / 180.0;
@@ -1380,7 +1440,7 @@ class _TexturedGlobePainter extends CustomPainter {
               Offset(screenPos.dx, screenPos.dy - 18),
               pinTip,
               isGPSPoint 
-                ? [const Color(0xFFFF3B30), const Color(0xFFC70039)]
+                ? [const Color(0xFF30D158), const Color(0xFF15803D)]
                 : [themeColor, themeColor.withOpacity(0.7)],
             )
             ..style = PaintingStyle.fill;
@@ -1392,7 +1452,11 @@ class _TexturedGlobePainter extends CustomPainter {
           canvas.drawCircle(pinCenter, 2.5, innerDotPaint);
           
           if (isGPSPoint) {
-            canvas.drawCircle(screenPos, 4.0 + pulseVal * 12.0, ringPaint);
+            final gpsRingPaint = Paint()
+              ..color = const Color(0xFF30D158).withOpacity(0.8 * (1.0 - pulseVal))
+              ..strokeWidth = 1.2
+              ..style = PaintingStyle.stroke;
+            canvas.drawCircle(screenPos, 4.0 + pulseVal * 12.0, gpsRingPaint);
           }
         } else {
           canvas.drawCircle(screenPos, 4.0, markerPaint);
@@ -1416,6 +1480,166 @@ class _TexturedGlobePainter extends CustomPainter {
     }
   }
 
+  void _drawContinentOutlines(Canvas canvas, double radius, double rotY, double rotX, double cx, double cy) {
+    final List<List<Offset>> continents = [
+      // South America (Detailed)
+      [
+        const Offset(12, -72), const Offset(10, -62), const Offset(5, -53),
+        const Offset(-5, -35), const Offset(-8, -35), const Offset(-23, -42),
+        const Offset(-30, -50), const Offset(-35, -55), const Offset(-40, -62),
+        const Offset(-52, -68), const Offset(-55, -67), const Offset(-46, -75),
+        const Offset(-33, -72), const Offset(-18, -70), const Offset(-12, -77),
+        const Offset(-5, -81), const Offset(1, -79), const Offset(9, -80),
+        const Offset(10, -75),
+      ],
+      // North America (Detailed)
+      [
+        const Offset(8, -77), const Offset(9, -83), const Offset(15, -90),
+        const Offset(16, -95), const Offset(20, -105), const Offset(23, -110),
+        const Offset(30, -115), const Offset(34, -120), const Offset(40, -124),
+        const Offset(48, -125), const Offset(54, -130), const Offset(58, -137),
+        const Offset(60, -145), const Offset(55, -163), const Offset(65, -168),
+        const Offset(70, -160), const Offset(70, -120), const Offset(68, -100),
+        const Offset(60, -85), const Offset(51, -80), const Offset(62, -75),
+        const Offset(58, -62), const Offset(47, -53), const Offset(44, -63),
+        const Offset(41, -71), const Offset(35, -75), const Offset(25, -80),
+        const Offset(30, -85), const Offset(30, -94), const Offset(26, -97),
+        const Offset(20, -96), const Offset(21, -90), const Offset(16, -88),
+        const Offset(15, -83),
+      ],
+      // Africa (Detailed)
+      [
+        const Offset(37, 10), const Offset(36, 15), const Offset(32, 20),
+        const Offset(31, 25), const Offset(31, 30), const Offset(30, 32),
+        const Offset(27, 34), const Offset(22, 37), const Offset(12, 43),
+        const Offset(11, 51), const Offset(5, 48), const Offset(-2, 40),
+        const Offset(-10, 40), const Offset(-15, 40), const Offset(-25, 33),
+        const Offset(-28, 32), const Offset(-34, 20), const Offset(-34, 18),
+        const Offset(-30, 17), const Offset(-22, 14), const Offset(-12, 13),
+        const Offset(-6, 12), const Offset(4, 9), const Offset(6, 3),
+        const Offset(5, -7), const Offset(8, -13), const Offset(15, -17),
+        const Offset(20, -17), const Offset(28, -13), const Offset(33, -7),
+        const Offset(35, -6), const Offset(36, 1),
+      ],
+      // Europe & Asia / Eurasia (Detailed)
+      [
+        const Offset(36, -6), const Offset(37, -9), const Offset(43, -9),
+        const Offset(43, -1), const Offset(48, -4), const Offset(50, 1),
+        const Offset(53, 5), const Offset(55, 8), const Offset(54, 14),
+        const Offset(59, 30), const Offset(60, 20), const Offset(58, 11),
+        const Offset(62, 5), const Offset(70, 20), const Offset(68, 40),
+        const Offset(67, 45), const Offset(69, 57), const Offset(73, 70),
+        const Offset(73, 80), const Offset(76, 95), const Offset(77, 105),
+        const Offset(72, 130), const Offset(70, 160), const Offset(66, 170),
+        const Offset(66, -170), const Offset(62, -179), const Offset(60, 165),
+        const Offset(51, 157), const Offset(53, 142), const Offset(43, 132),
+        const Offset(40, 125), const Offset(37, 126), const Offset(35, 120),
+        const Offset(31, 121), const Offset(22, 114), const Offset(21, 108),
+        const Offset(13, 109), const Offset(8, 105), const Offset(13, 100),
+        const Offset(6, 100), const Offset(1, 104), const Offset(10, 98),
+        const Offset(16, 96), const Offset(22, 90), const Offset(16, 82),
+        const Offset(8, 78), const Offset(15, 73), const Offset(19, 72),
+        const Offset(23, 70), const Offset(25, 67), const Offset(25, 60),
+        const Offset(27, 56), const Offset(25, 50), const Offset(25, 45),
+        const Offset(12, 44), const Offset(22, 37), const Offset(30, 32),
+        const Offset(31, 35), const Offset(35, 36), const Offset(36, 30),
+        const Offset(38, 26), const Offset(41, 29), const Offset(41, 35),
+        const Offset(42, 41), const Offset(45, 35), const Offset(46, 30),
+        const Offset(40, 23), const Offset(38, 22), const Offset(40, 18),
+        const Offset(45, 13), const Offset(41, 14), const Offset(38, 15),
+        const Offset(41, 12), const Offset(43, 7), const Offset(41, 2),
+      ],
+      // Australia (Detailed)
+      [
+        const Offset(-12, 131), const Offset(-11, 136), const Offset(-15, 136),
+        const Offset(-11, 142), const Offset(-15, 145), const Offset(-20, 148),
+        const Offset(-25, 153), const Offset(-28, 153), const Offset(-34, 151),
+        const Offset(-38, 145), const Offset(-38, 140), const Offset(-35, 138),
+        const Offset(-32, 133), const Offset(-34, 123), const Offset(-35, 118),
+        const Offset(-34, 115), const Offset(-32, 116), const Offset(-26, 113),
+        const Offset(-22, 114), const Offset(-20, 119), const Offset(-18, 122),
+        const Offset(-15, 125),
+      ],
+      // Greenland (Detailed)
+      [
+        const Offset(60, -45), const Offset(65, -52), const Offset(70, -54),
+        const Offset(76, -60), const Offset(82, -60), const Offset(83, -30),
+        const Offset(80, -15), const Offset(75, -20), const Offset(70, -22),
+        const Offset(65, -35),
+      ],
+      // Antarctica (Detailed)
+      [
+        const Offset(-63, -57), const Offset(-65, -64), const Offset(-72, -75),
+        const Offset(-75, -120), const Offset(-78, -160), const Offset(-72, 170),
+        const Offset(-66, 140), const Offset(-66, 100), const Offset(-67, 60),
+        const Offset(-70, 10), const Offset(-72, -20), const Offset(-75, -40),
+      ]
+    ];
+
+    final borderPaint = Paint()
+      ..color = themeColor.withOpacity(0.55)
+      ..strokeWidth = 1.3
+      ..style = PaintingStyle.stroke;
+
+    final fillPaint = Paint()
+      ..color = themeColor.withOpacity(0.06)
+      ..style = PaintingStyle.fill;
+
+    for (var continent in continents) {
+      Offset? lastPt;
+      bool lastVisible = false;
+      final path = ui.Path();
+      bool first = true;
+
+      // Draw outlines and fill visible paths
+      for (int i = 0; i <= continent.length; i++) {
+        final point = continent[i % continent.length];
+        final double latRad = point.dx * math.pi / 180.0;
+        final double lonRad = point.dy * math.pi / 180.0;
+        final double theta = math.pi / 2 - latRad;
+        final double phi = lonRad + math.pi;
+
+        final double x = radius * math.sin(theta) * math.sin(phi);
+        final double y = radius * math.cos(theta);
+        final double z = radius * math.sin(theta) * math.cos(phi);
+
+        final double rx = x * math.cos(rotY) + z * math.sin(rotY);
+        final double rz = -x * math.sin(rotY) + z * math.cos(rotY);
+
+        final double finalX = rx;
+        final double finalY = y * math.cos(rotX) - rz * math.sin(rotX);
+        final double finalZ = y * math.sin(rotX) + rz * math.cos(rotX);
+
+        final bool visible = finalZ > 0.0;
+        final pt = Offset(cx + finalX, cy + finalY);
+
+        if (visible) {
+          if (first) {
+            path.moveTo(pt.dx, pt.dy);
+            first = false;
+          } else {
+            path.lineTo(pt.dx, pt.dy);
+          }
+        } else {
+          first = true; // reset path if segment goes to the back
+        }
+
+        if (i > 0) {
+          if (visible && lastVisible) {
+            canvas.drawLine(lastPt!, pt, borderPaint);
+          }
+        }
+        lastPt = pt;
+        lastVisible = visible;
+      }
+
+      // Draw transparent filled continents for a perfect vector map look
+      if (!first) {
+        canvas.drawPath(path, fillPaint);
+      }
+    }
+  }
+
   @override
   bool shouldRepaint(covariant _TexturedGlobePainter oldDelegate) {
     return oldDelegate.rotationProgress != rotationProgress ||
@@ -1423,7 +1647,8 @@ class _TexturedGlobePainter extends CustomPainter {
         oldDelegate.manualRotY != manualRotY ||
         oldDelegate.earthImage != earthImage ||
         oldDelegate.isDark != isDark ||
-        oldDelegate.zoom != zoom;
+        oldDelegate.zoom != zoom ||
+        oldDelegate.filter != filter;
   }
 }
 
