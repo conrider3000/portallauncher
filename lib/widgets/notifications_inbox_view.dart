@@ -164,7 +164,7 @@ class _NotificationsInboxViewState extends State<NotificationsInboxView> with Wi
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withOpacity(0.08),
+                color: theme.colorScheme.primary.withValues(alpha: 0.08),
                 shape: BoxShape.circle,
               ),
               child: Icon(
@@ -186,7 +186,7 @@ class _NotificationsInboxViewState extends State<NotificationsInboxView> with Wi
             Text(
               'Para que a aba de Correio exiba as notificações do seu aparelho diretamente no Portal, ative a permissão do sistema.',
               style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurface.withOpacity(0.6),
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                 height: 1.4,
               ),
               textAlign: TextAlign.center,
@@ -224,7 +224,7 @@ class _NotificationsInboxViewState extends State<NotificationsInboxView> with Wi
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w800,
-                  color: theme.colorScheme.primary.withOpacity(0.8),
+                  color: theme.colorScheme.primary.withValues(alpha: 0.8),
                   letterSpacing: 0.5,
                 ),
               ),
@@ -260,14 +260,14 @@ class _NotificationsInboxViewState extends State<NotificationsInboxView> with Wi
                       Icon(
                         Icons.mail_outline_rounded,
                         size: 40,
-                        color: theme.colorScheme.onSurface.withOpacity(0.25),
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.25),
                       ),
                       const SizedBox(height: 12),
                       Text(
                         'Nenhuma notificação no momento',
                         style: TextStyle(
                           fontSize: 13,
-                          color: theme.colorScheme.onSurface.withOpacity(0.45),
+                          color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
                         ),
                       ),
                     ],
@@ -293,7 +293,7 @@ class _NotificationsInboxViewState extends State<NotificationsInboxView> with Wi
                           alignment: Alignment.centerRight,
                           padding: const EdgeInsets.only(right: 20),
                           decoration: BoxDecoration(
-                            color: Colors.redAccent.withOpacity(0.85),
+                            color: Colors.redAccent.withValues(alpha: 0.85),
                             borderRadius: BorderRadius.circular(16),
                           ),
                           child: const Icon(Icons.archive_outlined, color: Colors.white, size: 20),
@@ -309,10 +309,10 @@ class _NotificationsInboxViewState extends State<NotificationsInboxView> with Wi
                           child: Container(
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
-                              color: (isDark ? Colors.white : Colors.black).withOpacity(0.04),
+                              color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(
-                                color: theme.colorScheme.primary.withOpacity(0.06),
+                                color: theme.colorScheme.primary.withValues(alpha: 0.06),
                                 width: 1.0,
                               ),
                             ),
@@ -333,7 +333,7 @@ class _NotificationsInboxViewState extends State<NotificationsInboxView> with Wi
                                       width: 26,
                                       height: 26,
                                       decoration: BoxDecoration(
-                                        color: theme.colorScheme.primary.withOpacity(0.1),
+                                        color: theme.colorScheme.primary.withValues(alpha: 0.1),
                                         borderRadius: BorderRadius.circular(8),
                                       ),
                                       alignment: Alignment.center,
@@ -378,7 +378,7 @@ class _NotificationsInboxViewState extends State<NotificationsInboxView> with Wi
                                         text,
                                         style: TextStyle(
                                           fontSize: 11,
-                                          color: theme.colorScheme.onSurface.withOpacity(0.65),
+                                          color: theme.colorScheme.onSurface.withValues(alpha: 0.65),
                                           height: 1.3,
                                         ),
                                         maxLines: 2,

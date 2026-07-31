@@ -16,54 +16,107 @@ enum HeaderMode {
 }
 
 class MultiCalendarHelper {
-  static String getMayanKinDate(DateTime date) {
+  // CALENDARIO DAS 13 LUAS - DREAMSPELL
+  // 13 meses de 28 dias + Dia Fora do Tempo (25 jul) + Hunab Ku (29 fev)
+  // Offset: 01/01/2020 = Kin 173 (verificado: 26/07/2026=Kin 229)
+
+  static const List<String> _tones = [
+    'Magnetico', 'Lunar', 'Eletrico', 'Autoexistente',
+    'Harmonico', 'Ritmico', 'Ressonante', 'Galactico',
+    'Solar', 'Planetario', 'Espectral', 'Cristal', 'Cosmico',
+  ];
+
+  static const List<String> _seals = [
+    'Dragao Vermelho', 'Vento Branco', 'Noite Azul', 'Semente Amarela',
+    'Serpente Vermelha', 'Enlacador de Mundos Branco', 'Mao Azul', 'Estrela Amarela',
+    'Lua Vermelha', 'Cachorro Branco', 'Macaco Azul', 'Humano Amarelo',
+    'Caminhante do Ceu Vermelho', 'Mago Branco', 'Aguia Azul', 'Guerreiro Amarelo',
+    'Terra Vermelha', 'Espelho Branco', 'Tormenta Azul', 'Sol Amarelo',
+  ];
+
+  static const List<String> _moons = [
+    'Morcego (Magnetica)', 'Escorpiao (Lunar)', 'Cervo (Eletrica)',
+    'Coruja (Autoexistente)', 'Pavao (Harmonica)', 'Lagarto (Ritmica)',
+    'Macaco (Ressonante)', 'Falcao (Galactica)', 'Jaguar (Solar)',
+    'Cao (Planetaria)', 'Cobra (Espectral)', 'Coelho (Cristal)',
+    'Tartaruga (Cosmica)',
+  ];
+
+  static DateTime _yearStart(DateTime date) {
+    final d = DateTime.utc(date.year, date.month, date.day);
+    final jul26ThisYear = DateTime.utc(d.year, 7, 26);
+    if (!d.isBefore(jul26ThisYear)) return jul26ThisYear;
+    return DateTime.utc(d.year - 1, 7, 26);
+  }
+
+  static int _countDays(DateTime from, DateTime to) {
+    if (!to.isAfter(from)) return 0;
+    int count = 0;
+    DateTime cur = from;
+    while (cur.isBefore(to)) {
+      cur = cur.add(const Duration(days: 1));
+      if (cur.month == 7 && cur.day == 25) continue;
+      if (cur.month == 2 && cur.day == 29) continue;
+      count++;
+    }
+    return count;
+  }
+
+  static int _kinDays(DateTime target) {
     final anchor = DateTime.utc(2020, 1, 1);
-    final target = DateTime.utc(date.year, date.month, date.day);
-    
-    int days = 0;
-    if (target.isAfter(anchor)) {
-      DateTime current = anchor;
-      while (current.isBefore(target)) {
-        if (!(current.month == 2 && current.day == 29)) {
-          days++;
-        }
-        current = current.add(const Duration(days: 1));
-      }
-    } else {
-      DateTime current = anchor;
-      while (current.isAfter(target)) {
-        current = current.subtract(const Duration(days: 1));
-        if (!(current.month == 2 && current.day == 29)) {
-          days--;
-        }
+    final t = DateTime.utc(target.year, target.month, target.day);
+    int count = 0;
+    if (t.isAfter(anchor)) {
+      DateTime cur = anchor;
+      while (cur.isBefore(t)) {
+        cur = cur.add(const Duration(days: 1));
+        if (cur.month == 2 && cur.day == 29) continue;
+        count++;
       }
     }
-    
-    int kin = (178 + days) % 260;
-    if (kin <= 0) kin += 260;
-    
-    final tones = [
-      "Magnético (1)", "Lunar (2)", "Elétrico (3)", "Autoexistente (4)",
-      "Harmônico (5)", "Rítmico (6)", "Ressonante (7)", "Galáctico (8)",
-      "Solar (9)", "Planetário (10)", "Espectral (11)", "Cristal (12)", "Cósmico (13)"
-    ];
-    
-    final seals = [
-      "Dragão Vermelho (Imix)", "Vento Branco (Ik)", "Noite Azul (Akbal)", "Semente Amarela (Kan)",
-      "Serpente Vermelha (Chicchan)", "Enlaçador de Mundos Branco (Cimi)", "Mão Azul (Manik)", "Estrela Amarela (Lamat)",
-      "Lua Vermelha (Muluc)", "Cachorro Branco (Oc)", "Macaco Azul (Chuen)", "Humano Amarelo (Eb)",
-      "Caminhante do Céu Vermelho (Ben)", "Mago Branco (Ix)", "Águia Azul (Men)", "Guerreiro Amarelo (Cib)",
-      "Terra Vermelha (Caban)", "Espelho Branco (Etznab)", "Tormenta Azul (Cauac)", "Sol Amarelo (Ahau)"
-    ];
-    
-    int toneIndex = (kin - 1) % 13;
-    int sealIndex = (kin - 1) % 20;
-    
-    final toneName = tones[toneIndex];
-    final sealName = seals[sealIndex];
-    
-    return "Kin $kin: $sealName $toneName";
+    return count;
   }
+
+  static String getMayanKinDate(DateTime date) {
+    final d = DateTime.utc(date.year, date.month, date.day);
+
+    if (d.month == 7 && d.day == 25) {
+      final days = _kinDays(d);
+      int kin = (173 + days) % 260;
+      if (kin == 0) kin = 260;
+      final tone = _tones[(kin - 1) % 13];
+      final seal = _seals[(kin - 1) % 20];
+      return 'Dia Fora do Tempo\nKin $kin - $seal $tone';
+    }
+
+    if (d.month == 2 && d.day == 29) {
+      final days = _kinDays(d);
+      int kin = (173 + days) % 260;
+      if (kin == 0) kin = 260;
+      final tone = _tones[(kin - 1) % 13];
+      final seal = _seals[(kin - 1) % 20];
+      return 'Dia Hunab Ku 0.0\nKin $kin - $seal $tone';
+    }
+
+    final kinDaysCount = _kinDays(d);
+    int kin = (173 + kinDaysCount) % 260;
+    if (kin == 0) kin = 260;
+
+    final tone = _tones[(kin - 1) % 13];
+    final seal = _seals[(kin - 1) % 20];
+
+    final start = _yearStart(d);
+    final dayInYear = _countDays(start, d);
+    final moonIdx = dayInYear ~/ 28;
+    final dayInMoon = (dayInYear % 28) + 1;
+
+    final moonName = moonIdx < 13 ? _moons[moonIdx] : 'Lua ${moonIdx + 1}';
+    final moonNum = moonIdx + 1;
+
+    return 'Kin $kin - $seal $tone\nDia $dayInMoon - Lua $moonNum ($moonName)';
+  }
+
+
 
   static int getJulianDay(DateTime date) {
     int y = date.year;
@@ -284,18 +337,21 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
   String _sunriseTime = '06:45';
   String _sunsetTime = '18:03';
   double _userAltitude = 934.0;
-  double _gpsAccuracy = 15.0;
+  final double _gpsAccuracy = 15.0;
   bool _isFahrenheit = false;
   double _weatherTempCelsius = 15.0;
   bool _showPanel = false;
   bool _isExtended = false;
   int _calendarSystemIndex = 0; // 0: Gregorian, 1: Chinese, 2: Hebrew, 3: Hijri
-  int _tapCount = 0;
+  // ignore: unused_field
+  final int _tapCount = 0;
   Timer? _tapTimer;
   final List<int> _tapTimestamps = [];
   late AnimationController _animationController;
+  // ignore: unused_field
   late Animation<double> _animation;
 
+  // ignore: unused_element
   String _getTimezoneLabel() {
     final offset = _currentTime.timeZoneOffset;
     final hours = offset.inHours;
@@ -376,8 +432,10 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
 
       // Then get accurate position in background
       final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.low,
-        timeLimit: const Duration(seconds: 15),
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.low,
+          timeLimit: Duration(seconds: 15),
+        ),
       );
       if (mounted) setState(() { _userLat = pos.latitude; _userLon = pos.longitude; });
       await _fetchCityName(pos.latitude, pos.longitude);
@@ -594,7 +652,7 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
 
   Widget _getCalendarSymbolWidget(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final color = isDark ? Colors.white : Colors.black.withOpacity(0.8);
+    final color = isDark ? Colors.white : Colors.black.withValues(alpha: 0.8);
     
     return CustomPaint(
       size: const Size(14, 14),
@@ -770,7 +828,8 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
         children: [
           SizedBox(
             width: 18,
-            child: Center(
+            child: Align(
+              alignment: Alignment.centerLeft,
               child: Icon(
                 icon,
                 size: 14,
@@ -897,7 +956,7 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: (isDark ? moonColor : sunColor).withOpacity(0.15),
+                        color: (isDark ? moonColor : sunColor).withValues(alpha: 0.15),
                         blurRadius: _showPanel ? 12 : 4,
                         spreadRadius: _showPanel ? 2 : 0,
                       ),
@@ -950,7 +1009,7 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
                   color: isDark ? const Color(0xFF070D09) : const Color(0xFFF4F7F5),
                   borderRadius: BorderRadius.circular(24),
                   border: Border.all(
-                    color: theme.colorScheme.primary.withOpacity(0.12),
+                    color: theme.colorScheme.primary.withValues(alpha: 0.12),
                     width: 1.5,
                   ),
                 ),
@@ -969,21 +1028,12 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
                              mainAxisSize: MainAxisSize.min,
                              crossAxisAlignment: CrossAxisAlignment.center,
                              children: [
-                               SizedBox(
-                                 width: 18,
-                                 child: Center(
-                                   child: Icon(
-                                     Icons.access_time_rounded,
-                                     size: 14,
-                                     color: theme.colorScheme.primary,
-                                   ),
-                                 ),
-                               ),
+                               SizedBox(width: 18, child: Align(alignment: Alignment.centerLeft, child: Icon(Icons.access_time_rounded, size: 14, color: theme.colorScheme.primary))),
                                const SizedBox(width: 6),
                                Text(
                                  "${_currentTime.hour.toString().padLeft(2, '0')}:${_currentTime.minute.toString().padLeft(2, '0')}:${_currentTime.second.toString().padLeft(2, '0')}",
                                  style: TextStyle(
-                                   fontSize: 13,
+                                   fontSize: 12,
                                    fontWeight: FontWeight.bold,
                                    color: textColor,
                                    letterSpacing: 0.5,
@@ -998,7 +1048,7 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
                            Icon(
                              Icons.public_rounded,
                              size: 14,
-                             color: theme.colorScheme.primary.withOpacity(0.8),
+                             color: theme.colorScheme.primary.withValues(alpha: 0.8),
                            ),
                            const SizedBox(width: 6),
                            Text(
@@ -1014,7 +1064,7 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
                            Icon(
                              moonInfo['icon'],
                              size: 14,
-                             color: isDark ? moonColor.withOpacity(0.9) : theme.colorScheme.primary.withOpacity(0.8),
+                             color: isDark ? moonColor.withValues(alpha: 0.9) : theme.colorScheme.primary.withValues(alpha: 0.8),
                            ),
                            const SizedBox(width: 6),
                            Text(
@@ -1044,7 +1094,7 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
                            child: Container(
                              padding: const EdgeInsets.all(4),
                              decoration: BoxDecoration(
-                               color: theme.colorScheme.primary.withOpacity(0.12),
+                               color: theme.colorScheme.primary.withValues(alpha: 0.12),
                                shape: BoxShape.circle,
                              ),
                              child: Icon(
@@ -1073,9 +1123,10 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
                                children: [
                                  SizedBox(
                                    width: 18,
-                                   child: Center(
-                                     child: _getCalendarSymbolWidget(context),
-                                   ),
+                                   child: Align(
+                                      alignment: Alignment.centerLeft,
+                                      child: _getCalendarSymbolWidget(context),
+                                    ),
                                  ),
                                  const SizedBox(width: 8),
                                  Expanded(
@@ -1241,57 +1292,46 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
                        InkWell(
                          onTap: _cycleCalendar,
                          borderRadius: BorderRadius.circular(6),
-                         child: Padding(
-                           padding: const EdgeInsets.symmetric(vertical: 2.0),
-                           child: Row(
-                             crossAxisAlignment: CrossAxisAlignment.center,
-                             children: [
-                               SizedBox(
-                                 width: 18,
-                                 child: Center(
-                                   child: _getCalendarSymbolWidget(context),
-                                 ),
+                         child: Row(
+                           crossAxisAlignment: CrossAxisAlignment.center,
+                           children: [
+                             SizedBox(
+                               width: 18,
+                               child: Align(
+                                 alignment: Alignment.centerLeft,
+                                 child: _getCalendarSymbolWidget(context),
                                ),
-                               const SizedBox(width: 6),
-                               Expanded(
-                                 child: Text(
-                                   _getCalendarDateString(),
-                                   style: TextStyle(
-                                     fontSize: 12,
-                                     fontWeight: FontWeight.w600,
-                                     color: textColor,
-                                     height: 1.1,
-                                   ),
-                                   maxLines: 1,
-                                   overflow: TextOverflow.ellipsis,
+                             ),
+                             const SizedBox(width: 6),
+                             Expanded(
+                               child: Text(
+                                 _getCalendarDateString(),
+                                 style: TextStyle(
+                                   fontSize: 12,
+                                   fontWeight: FontWeight.bold,
+                                   color: textColor,
+                                   height: 1.1,
                                  ),
+                                 maxLines: 1,
+                                 overflow: TextOverflow.ellipsis,
                                ),
-                             ],
-                           ),
+                             ),
+                           ],
                          ),
                        ),
-                       const SizedBox(height: 6),
+                       const SizedBox(height: 8),
 
                        // Line 3: Location and Weather (with dedicated icons)
                        Row(
                          crossAxisAlignment: CrossAxisAlignment.center,
                          children: [
-                           SizedBox(
-                             width: 18,
-                             child: Center(
-                               child: Icon(
-                                 Icons.location_on_rounded,
-                                 size: 14,
-                                 color: theme.colorScheme.primary.withOpacity(0.8),
-                               ),
-                             ),
-                           ),
+                           SizedBox(width: 18, child: Align(alignment: Alignment.centerLeft, child: Icon(Icons.location_on_rounded, size: 14, color: theme.colorScheme.primary.withValues(alpha: 0.8)))),
                            const SizedBox(width: 6),
                             Text(
                               _onlyCityName,
                              style: TextStyle(
                                fontSize: 12,
-                               fontWeight: FontWeight.w600,
+                               fontWeight: FontWeight.bold,
                                color: textColor,
                                height: 1.1,
                              ),
@@ -1300,7 +1340,7 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
                            Icon(
                              Icons.thermostat_rounded,
                              size: 14,
-                             color: theme.colorScheme.primary.withOpacity(0.8),
+                             color: theme.colorScheme.primary.withValues(alpha: 0.8),
                            ),
                            const SizedBox(width: 2),
                            Text(
@@ -1316,7 +1356,7 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
                            Icon(
                              _getWeatherIconData() ?? Icons.wb_sunny_rounded,
                              size: 14,
-                             color: theme.colorScheme.primary.withOpacity(0.8),
+                             color: theme.colorScheme.primary.withValues(alpha: 0.8),
                            ),
                            const SizedBox(width: 2),
                            Expanded(
@@ -1324,7 +1364,7 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
                                _weatherDesc,
                                style: TextStyle(
                                  fontSize: 12,
-                                 fontWeight: FontWeight.w600,
+                                 fontWeight: FontWeight.bold,
                                  color: textColor,
                                  height: 1.1,
                                ),

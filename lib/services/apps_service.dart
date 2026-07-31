@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -108,7 +109,7 @@ class AppsService {
     _incrementLaunchCount(packageName);
     _addToRecentApps(packageName);
     if (!isAndroidNative) {
-      print("Simulando lançamento do app: $packageName");
+      debugPrint("Simulando lançamento do app: $packageName");
       return true;
     }
 

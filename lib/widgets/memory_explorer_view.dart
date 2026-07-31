@@ -17,6 +17,8 @@ class _MemoryExplorerViewState extends State<MemoryExplorerView> {
   late String _rootPath;
   late String _currentPath;
   List<FileSystemEntity> _entities = [];
+  // ignore: unused_field
+  // ignore: unused_field
   bool _hasPermission = false;
   bool _loading = false;
   String _errorMessage = '';
@@ -216,7 +218,6 @@ class _MemoryExplorerViewState extends State<MemoryExplorerView> {
 
     final ramTotal = _ramTotalGB > 0 ? _ramTotalGB : 8.0;
     final ramUsed = _ramUsedGB > 0 ? _ramUsedGB : 4.2;
-    final ramAvail = double.parse((ramTotal - ramUsed).toStringAsFixed(1));
     final sysSpace = double.parse((usedSpace * 0.167).toStringAsFixed(1)); // ~system partition estimate
 
     return ClipRRect(
@@ -226,10 +227,10 @@ class _MemoryExplorerViewState extends State<MemoryExplorerView> {
         child: Container(
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            color: (isDark ? Colors.black : Colors.white).withOpacity(0.45),
+            color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.45),
             borderRadius: BorderRadius.circular(24),
             border: Border.all(
-              color: (isDark ? Colors.white : Colors.black).withOpacity(0.08),
+              color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.08),
               width: 1.2,
             ),
           ),
@@ -263,7 +264,7 @@ class _MemoryExplorerViewState extends State<MemoryExplorerView> {
                 child: LinearProgressIndicator(
                   value: progress,
                   minHeight: 8,
-                  backgroundColor: (isDark ? Colors.white : Colors.black).withOpacity(0.08),
+                  backgroundColor: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.08),
                   valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
                 ),
               ),
@@ -292,7 +293,7 @@ class _MemoryExplorerViewState extends State<MemoryExplorerView> {
           style: TextStyle(
             fontSize: 9,
             fontWeight: FontWeight.w700,
-            color: theme.colorScheme.onSurface.withOpacity(0.45),
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
             letterSpacing: 0.5,
           ),
         ),
@@ -302,7 +303,7 @@ class _MemoryExplorerViewState extends State<MemoryExplorerView> {
           style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.bold,
-            color: theme.colorScheme.onSurface.withOpacity(0.85),
+            color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
           ),
         ),
       ],
@@ -369,14 +370,14 @@ class _MemoryExplorerViewState extends State<MemoryExplorerView> {
                             'Pasta vazia ou sem resultados',
                             style: TextStyle(
                               fontSize: 12,
-                              color: theme.colorScheme.onSurface.withOpacity(0.4),
+                              color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
                             ),
                           ),
                         )
                       : ListView.separated(
                           itemCount: entities.length,
                           separatorBuilder: (context, index) => Divider(
-                            color: (isDark ? Colors.white : Colors.black).withOpacity(0.06),
+                            color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.06),
                             height: 1,
                           ),
                           itemBuilder: (context, index) {
@@ -429,7 +430,7 @@ class _MemoryExplorerViewState extends State<MemoryExplorerView> {
                                 alignment: Alignment.centerRight,
                                 padding: const EdgeInsets.only(right: 20),
                                 decoration: BoxDecoration(
-                                  color: Colors.redAccent.withOpacity(0.8),
+                                  color: Colors.redAccent.withValues(alpha: 0.8),
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: const Icon(Icons.delete_rounded, color: Colors.white, size: 18),
@@ -468,6 +469,7 @@ class _MemoryExplorerViewState extends State<MemoryExplorerView> {
                                 if (first != true) return false;
 
                                 // 2ª confirmação
+                                if (!context.mounted) return false;
                                 final second = await showDialog<bool>(
                                   context: context,
                                   builder: (ctx) => AlertDialog(
@@ -531,8 +533,8 @@ class _MemoryExplorerViewState extends State<MemoryExplorerView> {
                                         padding: const EdgeInsets.all(8),
                                         decoration: BoxDecoration(
                                           color: isDir
-                                              ? Colors.amberAccent.withOpacity(0.12)
-                                              : theme.colorScheme.primary.withOpacity(0.08),
+                                              ? Colors.amberAccent.withValues(alpha: 0.12)
+                                              : theme.colorScheme.primary.withValues(alpha: 0.08),
                                           borderRadius: BorderRadius.circular(8),
                                         ),
                                         child: Icon(
@@ -560,7 +562,7 @@ class _MemoryExplorerViewState extends State<MemoryExplorerView> {
                                               isDir ? 'Pasta' : '$sizeStr • $dateStr',
                                               style: TextStyle(
                                                 fontSize: 9,
-                                                color: theme.colorScheme.onSurface.withOpacity(0.4),
+                                                color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
                                               ),
                                             ),
                                           ],
@@ -569,7 +571,7 @@ class _MemoryExplorerViewState extends State<MemoryExplorerView> {
                                       if (isDir)
                                         Icon(
                                           Icons.chevron_right_rounded,
-                                          color: theme.colorScheme.onSurface.withOpacity(0.3),
+                                          color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
                                           size: 18,
                                         ),
                                     ],
@@ -598,10 +600,10 @@ class _MemoryExplorerViewState extends State<MemoryExplorerView> {
                 child: Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: (isDark ? Colors.black : Colors.white).withOpacity(0.7),
+                    color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.7),
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(
-                      color: (isDark ? Colors.white : Colors.black).withOpacity(0.08),
+                      color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.08),
                     ),
                   ),
                   child: Column(
@@ -627,7 +629,7 @@ class _MemoryExplorerViewState extends State<MemoryExplorerView> {
                         'Tipo: ${file['type']}  •  Tamanho: ${file['size']}\nData: ${file['date']}',
                         style: TextStyle(
                           fontSize: 11,
-                          color: theme.colorScheme.onSurface.withOpacity(0.55),
+                          color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
                         ),
                         textAlign: TextAlign.center,
                       ),
@@ -672,10 +674,10 @@ class _MemoryExplorerViewState extends State<MemoryExplorerView> {
                 child: Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: (isDark ? Colors.black : Colors.white).withOpacity(0.4),
+                    color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.4),
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(
-                      color: (isDark ? Colors.white : Colors.black).withOpacity(0.08),
+                      color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.08),
                       width: 1.2,
                     ),
                   ),

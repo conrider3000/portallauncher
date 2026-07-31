@@ -139,7 +139,7 @@ class _AppsListViewState extends State<AppsListView> {
               ? Center(
                   child: Text(
                     'Nenhum app encontrado',
-                    style: TextStyle(color: theme.colorScheme.onSurface.withOpacity(0.5)),
+                    style: TextStyle(color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
                   ),
                 )
               : ListView.builder(
@@ -177,10 +177,10 @@ class _AppsListViewState extends State<AppsListView> {
                 },
                 child: Container(
                   decoration: BoxDecoration(
-                    color: (isDark ? Colors.black : Colors.white).withOpacity(0.06),
+                    color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.06),
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: (isDark ? Colors.white : Colors.black).withOpacity(0.04),
+                      color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
                     ),
                   ),
                   child: Column(
@@ -196,7 +196,7 @@ class _AppsListViewState extends State<AppsListView> {
                               fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
                               color: isCurrent
                                   ? theme.colorScheme.secondary
-                                  : theme.colorScheme.onSurface.withOpacity(0.4),
+                                  : theme.colorScheme.onSurface.withValues(alpha: 0.4),
                             ),
                           ),
                         ),
@@ -216,7 +216,7 @@ class _AppsListViewState extends State<AppsListView> {
               width: 72,
               height: 72,
               decoration: BoxDecoration(
-                color: theme.colorScheme.primary.withOpacity(0.9),
+                color: theme.colorScheme.primary.withValues(alpha: 0.9),
                 shape: BoxShape.circle,
               ),
               alignment: Alignment.center,
@@ -249,10 +249,10 @@ class _AppsListViewState extends State<AppsListView> {
                 child: Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: (isDark ? const Color(0xFF070D09) : const Color(0xFFF4F7F5)).withOpacity(0.75),
+                    color: (isDark ? const Color(0xFF070D09) : const Color(0xFFF4F7F5)).withValues(alpha: 0.75),
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(
-                      color: theme.colorScheme.primary.withOpacity(0.15),
+                      color: theme.colorScheme.primary.withValues(alpha: 0.15),
                       width: 1.2,
                     ),
                   ),
@@ -290,7 +290,7 @@ class _AppsListViewState extends State<AppsListView> {
                                     app.packageName,
                                     style: TextStyle(
                                       fontSize: 11,
-                                      color: theme.colorScheme.onSurface.withOpacity(0.5),
+                                      color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
                                     ),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
@@ -392,8 +392,8 @@ class _AppsListViewState extends State<AppsListView> {
             child: InkWell(
               onTap: () => AppsService.launchApp(app.packageName, app.className),
               onLongPress: () => _showAppOptions(app, theme, isDark),
-              splashColor: theme.colorScheme.primary.withOpacity(0.08),
-              highlightColor: theme.colorScheme.primary.withOpacity(0.04),
+              splashColor: theme.colorScheme.primary.withValues(alpha: 0.08),
+              highlightColor: theme.colorScheme.primary.withValues(alpha: 0.04),
               borderRadius: BorderRadius.circular(12),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -409,7 +409,7 @@ class _AppsListViewState extends State<AppsListView> {
                           fontWeight: FontWeight.w600,
                           fontSize: 14,
                           letterSpacing: 0.25,
-                          color: theme.colorScheme.onSurface.withOpacity(0.85),
+                          color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
                         ),
                         textAlign: TextAlign.right, // Text right-alignment
                         maxLines: 1,
@@ -429,7 +429,7 @@ class _AppsListViewState extends State<AppsListView> {
                         : Icon(
                             Icons.android_rounded,
                             size: 20,
-                            color: theme.colorScheme.primary.withOpacity(0.3),
+                            color: theme.colorScheme.primary.withValues(alpha: 0.3),
                           ),
                     ),
                   ],

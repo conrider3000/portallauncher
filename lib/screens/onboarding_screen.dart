@@ -1,10 +1,10 @@
-import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import '../services/launcher_service.dart';
 import '../theme/tropical_theme.dart';
 import '../utils/platform_helper.dart';
-import '../utils/theme_manager.dart';
 import '../widgets/context_header.dart';
+import '../widgets/virtual_topography.dart';
 
 class OnboardingScreen extends StatefulWidget {
   final VoidCallback onSetupComplete;
@@ -120,7 +120,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                     '4. Consentimento e Revogação:\n'
                     'Ao prosseguir, você concorda com o processamento local desses dados. É possível revogar as permissões nas configurações do Android a qualquer momento.',
                     style: theme.textTheme.bodyMedium?.copyWith(
-                      color: theme.colorScheme.onSurface.withOpacity(0.7),
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
                       height: 1.5,
                       fontSize: 13,
                     ),
@@ -163,7 +163,12 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       backgroundColor: isDark ? Colors.black : Colors.white,
       body: Stack(
         children: [
-          // 1. Apple/Higgs Style Header Stack containing ContextHeader and the Portal Title
+          // 1. Full 3D Interactive Virtual Topography Globe (Real Earth with Satellite + Clouds)
+          const Positioned.fill(
+            child: VirtualTopography(),
+          ),
+
+          // 2. Interactive Time-Space Header at Top
           Positioned(
             top: 0,
             left: 0,
@@ -215,115 +220,129 @@ class _OnboardingScreenState extends State<OnboardingScreen>
             ),
           ),
 
-          // 2. Main content positioned below the interactive header
+          // 3. Onboarding Glass Dock Overlay (in place of Search bar and Tab bar at bottom)
           Positioned(
-            top: 148.0,
+            bottom: 0,
             left: 0,
             right: 0,
-            bottom: 0,
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 28.0, vertical: 20.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    const Spacer(),
-
-                    // Green Earth Wireframe
-                    _buildWireframeGlobe(theme, isDark),
-
-                    const Spacer(),
-
-                    // Terms & LGPD Section with Policy Link
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: isDark ? const Color(0xFF0F1E15) : const Color(0xFFF4F7F5),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: theme.colorScheme.primary.withOpacity(0.15),
-                        ),
+            child: ClipRRect(
+              child: BackdropFilter(
+                filter: ui.ImageFilter.blur(sigmaX: 16.0, sigmaY: 16.0),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(20.0, 16.0, 20.0, 24.0),
+                  decoration: BoxDecoration(
+                    color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.65),
+                    border: Border(
+                      top: BorderSide(
+                        color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                        width: 1,
                       ),
-                      child: Column(
-                        children: [
-                          Row(
+                    ),
+                  ),
+                  child: SafeArea(
+                    top: false,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // Terms & LGPD Section
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xFF0F1E15).withValues(alpha: 0.8) : const Color(0xFFF4F7F5).withValues(alpha: 0.8),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                            ),
+                          ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
                             children: [
-                              Checkbox(
-                                value: _lgpdAccepted,
-                                onChanged: (val) {
-                                  setState(() {
-                                    _lgpdAccepted = val ?? false;
-                                  });
-                                },
-                                activeColor: theme.colorScheme.primary,
-                              ),
-                              Expanded(
-                                child: GestureDetector(
-                                  onTap: () {
-                                    setState(() {
-                                      _lgpdAccepted = !_lgpdAccepted;
-                                    });
-                                  },
-                                  child: Text(
-                                    'Aceito os termos da LGPD e autorizo o processamento local de dados do dispositivo.',
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: theme.colorScheme.onSurface.withOpacity(0.8),
-                                      fontSize: 11,
+                              Row(
+                                children: [
+                                  Checkbox(
+                                    value: _lgpdAccepted,
+                                    onChanged: (val) {
+                                      setState(() {
+                                        _lgpdAccepted = val ?? false;
+                                      });
+                                    },
+                                    activeColor: theme.colorScheme.primary,
+                                  ),
+                                  Expanded(
+                                    child: GestureDetector(
+                                      onTap: () {
+                                        setState(() {
+                                          _lgpdAccepted = !_lgpdAccepted;
+                                        });
+                                      },
+                                      child: Text(
+                                        'Aceito os termos da LGPD e o processamento local.',
+                                        style: theme.textTheme.bodySmall?.copyWith(
+                                          color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
+                                          fontSize: 11,
+                                        ),
+                                      ),
                                     ),
                                   ),
-                                ),
+                                  GestureDetector(
+                                    onTap: _showPrivacyPolicySheet,
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(right: 8.0),
+                                      child: Text(
+                                        'Ver Termos',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: theme.colorScheme.primary,
+                                          decoration: TextDecoration.underline,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
-                          const SizedBox(height: 8),
-                          GestureDetector(
-                            onTap: _showPrivacyPolicySheet,
-                            child: Text(
-                              'Ver Termos e Privacidade',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: theme.colorScheme.primary,
-                                decoration: TextDecoration.underline,
+                        ),
+                        const SizedBox(height: 14),
+
+                        // Action Buttons Row (Entrar no Portal + Definir como Padrão)
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildHiggsButton(
+                                text: 'Entrar no Portal',
+                                onTap: () {
+                                  if (!_lgpdAccepted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Por favor, aceite os termos da LGPD primeiro.'),
+                                        backgroundColor: TropicalTheme.warmTerracotta,
+                                      ),
+                                    );
+                                    return;
+                                  }
+                                  widget.onSetupComplete();
+                                },
+                                theme: theme,
+                                isDark: isDark,
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // Button 1 (Top): Entrar no Portal
-                    _buildHiggsButton(
-                      text: 'Entrar no Portal',
-                      onTap: () {
-                        if (!_lgpdAccepted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Por favor, aceite os termos da LGPD primeiro.'),
-                              backgroundColor: TropicalTheme.warmTerracotta,
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _buildHiggsButton(
+                                text: 'Definir Padrão',
+                                onTap: _triggerSetup,
+                                theme: theme,
+                                isDark: isDark,
+                                isLoading: _isChecking,
+                              ),
                             ),
-                          );
-                          return;
-                        }
-                        widget.onSetupComplete();
-                      },
-                      theme: theme,
-                      isDark: isDark,
+                          ],
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 12),
-
-                    // Button 2 (Bottom): Definir como Padrão
-                    _buildHiggsButton(
-                      text: 'Definir como Padrão',
-                      onTap: _triggerSetup,
-                      theme: theme,
-                      isDark: isDark,
-                      isLoading: _isChecking,
-                    ),
-                    const SizedBox(height: 12),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -345,20 +364,6 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     );
   }
 
-  Widget _buildWireframeGlobe(ThemeData theme, bool isDark) {
-    return Container(
-      width: 160,
-      height: 160,
-      alignment: Alignment.center,
-      child: CustomPaint(
-        size: const Size(160, 160),
-        painter: WireframeGlobePainter(
-          color: theme.colorScheme.primary.withOpacity(0.5),
-        ),
-      ),
-    );
-  }
-
   Widget _buildHiggsButton({
     required String text,
     required VoidCallback onTap,
@@ -372,16 +377,16 @@ class _OnboardingScreenState extends State<OnboardingScreen>
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          splashColor: theme.colorScheme.primary.withOpacity(0.12),
-          highlightColor: theme.colorScheme.primary.withOpacity(0.06),
+          splashColor: theme.colorScheme.primary.withValues(alpha: 0.12),
+          highlightColor: theme.colorScheme.primary.withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(16),
           child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 16),
+            padding: const EdgeInsets.symmetric(vertical: 14),
             decoration: BoxDecoration(
-              color: (isDark ? const Color(0xFF070D09) : const Color(0xFFF4F7F5)).withOpacity(0.7),
+              color: (isDark ? const Color(0xFF070D09) : const Color(0xFFF4F7F5)).withValues(alpha: 0.8),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: theme.colorScheme.primary.withOpacity(0.35),
+                color: theme.colorScheme.primary.withValues(alpha: 0.35),
                 width: 1.2,
               ),
             ),
@@ -392,17 +397,17 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                 Text(
                   text,
                   style: TextStyle(
-                    fontSize: 15,
+                    fontSize: 13,
                     fontWeight: FontWeight.bold,
-                    letterSpacing: 0.5,
-                    color: theme.colorScheme.onSurface.withOpacity(0.85),
+                    letterSpacing: 0.3,
+                    color: theme.colorScheme.onSurface.withValues(alpha: 0.9),
                   ),
                 ),
                 if (isLoading) ...[
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 8),
                   SizedBox(
-                    width: 16,
-                    height: 16,
+                    width: 14,
+                    height: 14,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
                       valueColor: AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
@@ -416,78 +421,4 @@ class _OnboardingScreenState extends State<OnboardingScreen>
       ),
     );
   }
-}
-
-class WireframeGlobePainter extends CustomPainter {
-  final Color color;
-
-  WireframeGlobePainter({required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.2;
-
-    final center = Offset(size.width / 2, size.height / 2);
-    final radius = size.width / 2;
-
-    // Draw outer boundary circle
-    canvas.drawCircle(center, radius, paint);
-
-    // Draw horizontal latitudes (curved ellipses)
-    // Equator (straight line)
-    canvas.drawLine(
-      Offset(center.dx - radius, center.dy),
-      Offset(center.dx + radius, center.dy),
-      paint,
-    );
-
-    // Latitudes
-    final latFactors = [0.35, 0.70];
-    for (final factor in latFactors) {
-      final rX = radius * math.sqrt(1 - factor * factor);
-      final rY = radius * 0.25 * math.sqrt(1 - factor * factor); // flattened oval
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: Offset(center.dx, center.dy - radius * factor),
-          width: rX * 2,
-          height: rY * 2,
-        ),
-        paint,
-      );
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: Offset(center.dx, center.dy + radius * factor),
-          width: rX * 2,
-          height: rY * 2,
-        ),
-        paint,
-      );
-    }
-
-    // Draw vertical longitudes (vertical ellipses)
-    final lonFactors = [0.3, 0.6, 0.85];
-    for (final factor in lonFactors) {
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: center,
-          width: radius * 2 * factor,
-          height: radius * 2,
-        ),
-        paint,
-      );
-    }
-
-    // Draw central axis line
-    canvas.drawLine(
-      Offset(center.dx, center.dy - radius),
-      Offset(center.dx, center.dy + radius),
-      paint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

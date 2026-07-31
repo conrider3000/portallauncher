@@ -37,7 +37,7 @@ class TropicalTheme {
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: Colors.black.withOpacity(0.08), width: 1.0),
+          side: BorderSide(color: Colors.black.withValues(alpha: 0.08), width: 1.0),
         ),
       ),
       textTheme: const TextTheme(
@@ -97,7 +97,7 @@ class TropicalTheme {
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: Colors.white.withOpacity(0.08), width: 1.0),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 1.0),
         ),
       ),
       textTheme: const TextTheme(

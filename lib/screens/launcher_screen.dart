@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:ui' as ui;
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/launcher_service.dart';
@@ -34,6 +33,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
   final TextEditingController _overlaySearchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   final FocusNode _overlayFocusNode = FocusNode();
+  // ignore: unused_field
   bool _searchOverlayOpen = false;
   double _lastPointerDownX = 0.0;
   double _sideBarWidth = 0.0;
@@ -44,6 +44,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
   // For unified app search inside the overlay
   List<AppInfo> _allApps = [];
   List<AppInfo> _overlayFilteredApps = [];
+  // ignore: unused_field
   final Map<String, Uint8List?> _overlayIconCache = {};
 
   Map<String, dynamic> _hardwareInfo = {};
@@ -156,6 +157,32 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
     });
   }
 
+  void _handleSatelliteDoubleTap() {
+    VirtualTopography.refreshSatelliteTrigger.value =
+        !VirtualTopography.refreshSatelliteTrigger.value;
+    if (mounted) {
+      ScaffoldMessenger.of(context).clearSnackBars();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.satellite_alt_rounded, color: Colors.white, size: 18),
+              SizedBox(width: 8),
+              Text(
+                'Atualizando telemetria e dados de satélite...',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+              ),
+            ],
+          ),
+          duration: const Duration(seconds: 2),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        ),
+      );
+    }
+  }
+
   void _handleSearchTap() {
     final query = _searchController.text.trim();
     if (query.isEmpty) {
@@ -188,7 +215,6 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _checkDefaultStatus();
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual, overlays: [SystemUiOverlay.bottom]);
     _loadAppsForOverlay();
     _loadHardwareInfo();
     _loadInitialStates();
@@ -362,11 +388,11 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
               filter: ui.ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
               child: Container(
                 decoration: BoxDecoration(
-                  color: (isDark ? const Color(0xFF0F1411) : const Color(0xFFF0F4F1)).withOpacity(0.85),
+                  color: (isDark ? const Color(0xFF0F1411) : const Color(0xFFF0F4F1)).withValues(alpha: 0.85),
                   borderRadius: const BorderRadius.horizontal(right: Radius.circular(32)),
                   border: Border(
                     right: BorderSide(
-                      color: theme.colorScheme.primary.withOpacity(0.12),
+                      color: theme.colorScheme.primary.withValues(alpha: 0.12),
                       width: 1.5,
                     ),
                   ),
@@ -398,7 +424,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                             ),
                             if (!_loadingHardware)
                               IconButton(
-                                icon: Icon(Icons.refresh_rounded, size: 18, color: theme.colorScheme.primary.withOpacity(0.6)),
+                                icon: Icon(Icons.refresh_rounded, size: 18, color: theme.colorScheme.primary.withValues(alpha: 0.6)),
                                 constraints: const BoxConstraints(),
                                 padding: EdgeInsets.zero,
                                 onPressed: () {
@@ -409,7 +435,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                           ],
                         ),
                         const SizedBox(height: 10),
-                        Divider(color: theme.colorScheme.primary.withOpacity(0.15)),
+                        Divider(color: theme.colorScheme.primary.withValues(alpha: 0.15)),
                         
                         Expanded(
                           child: _loadingHardware
@@ -502,7 +528,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                 ),
                         ),
                         
-                        Divider(color: theme.colorScheme.primary.withOpacity(0.15)),
+                        Divider(color: theme.colorScheme.primary.withValues(alpha: 0.15)),
                         const SizedBox(height: 6),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -512,7 +538,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                               style: TextStyle(
                                 fontSize: 9,
                                 fontWeight: FontWeight.w800,
-                                color: theme.colorScheme.primary.withOpacity(0.4),
+                                color: theme.colorScheme.primary.withValues(alpha: 0.4),
                                 letterSpacing: 0.5,
                               ),
                             ),
@@ -521,7 +547,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                               style: TextStyle(
                                 fontSize: 8,
                                 fontWeight: FontWeight.bold,
-                                color: theme.colorScheme.secondary.withOpacity(0.6),
+                                color: theme.colorScheme.secondary.withValues(alpha: 0.6),
                               ),
                             ),
                           ],
@@ -556,10 +582,10 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                         decoration: BoxDecoration(
-                          color: theme.colorScheme.primary.withOpacity(isDark ? 0.15 : 0.08),
+                          color: theme.colorScheme.primary.withValues(alpha: isDark ? 0.15 : 0.08),
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                            color: theme.colorScheme.primary.withOpacity(0.2),
+                            color: theme.colorScheme.primary.withValues(alpha: 0.2),
                           ),
                         ),
                         child: Row(
@@ -587,7 +613,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                     'Toque para configurar a tela de início do seu aparelho.',
                                     style: TextStyle(
                                       fontSize: 11,
-                                      color: theme.colorScheme.onSurface.withOpacity(0.6),
+                                      color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
                                     ),
                                   ),
                                 ],
@@ -661,7 +687,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                               }
                             },
                             child: const Padding(
-                              padding: EdgeInsets.only(left: 16.0, right: 16.0, top: 12.0, bottom: 8.0),
+                              padding: EdgeInsets.only(left: 12.0, right: 12.0, top: 12.0, bottom: 8.0),
                               child: ContextHeader(),
                             ),
                           ),
@@ -729,10 +755,10 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                             }
                             final double screenWidth = MediaQuery.of(context).size.width;
                             final double collapsedWidth = 48.0;
-                            final double expandedWidth = screenWidth - 42.0;
+                            final double expandedWidth = screenWidth - 40.0;
 
                             return Padding(
-                              padding: const EdgeInsets.only(left: 26.0, right: 16.0),
+                              padding: const EdgeInsets.only(left: 20.0, right: 20.0),
                               child: Align(
                                 alignment: Alignment.centerLeft,
                                 child: AnimatedBuilder(
@@ -747,19 +773,20 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                           _toggleFilterBar();
                                         }
                                       },
+                                      onDoubleTap: _handleSatelliteDoubleTap,
                                       child: Container(
                                         width: currentWidth,
                                         height: 48,
                                         decoration: BoxDecoration(
-                                          color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
+                                          color: isDark ? const Color(0xFF070D09) : const Color(0xFFF4F7F5),
                                           borderRadius: BorderRadius.circular(24),
                                           border: Border.all(
-                                            color: theme.colorScheme.primary.withOpacity(ui.lerpDouble(0.15, 0.35, progress)!),
-                                            width: 1.2,
+                                            color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                                            width: 1.5,
                                           ),
                                           boxShadow: [
                                             BoxShadow(
-                                              color: theme.colorScheme.primary.withOpacity(0.08),
+                                              color: theme.colorScheme.primary.withValues(alpha: 0.08),
                                               blurRadius: 4,
                                               spreadRadius: 0,
                                             ),
@@ -773,13 +800,16 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                               if (_filterBarController.value < 0.9)
                                                 Opacity(
                                                   opacity: (1.0 - _filterBarController.value).clamp(0.0, 1.0),
-                                                  child: SizedBox(
-                                                    width: 48,
-                                                    height: 48,
-                                                    child: Icon(
-                                                      Icons.satellite_alt_rounded,
-                                                      size: 20,
-                                                      color: theme.colorScheme.primary,
+                                                  child: GestureDetector(
+                                                    onDoubleTap: _handleSatelliteDoubleTap,
+                                                    child: SizedBox(
+                                                      width: 48,
+                                                      height: 48,
+                                                      child: Icon(
+                                                        Icons.satellite_alt_rounded,
+                                                        size: 20,
+                                                        color: theme.colorScheme.primary,
+                                                      ),
                                                     ),
                                                   ),
                                                 ),
@@ -790,6 +820,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                                     children: [
                                                       GestureDetector(
                                                         onTap: _toggleFilterBar,
+                                                        onDoubleTap: _handleSatelliteDoubleTap,
                                                         behavior: HitTestBehavior.opaque,
                                                         child: Container(
                                                           width: 48,
@@ -836,10 +867,10 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                   child: Container(
                     padding: const EdgeInsets.fromLTRB(20.0, 10.0, 20.0, 16.0),
                     decoration: BoxDecoration(
-                      color: (isDark ? Colors.black : Colors.white).withOpacity(0.55),
+                      color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.55),
                       border: Border(
                         top: BorderSide(
-                          color: theme.colorScheme.primary.withOpacity(0.08),
+                          color: theme.colorScheme.primary.withValues(alpha: 0.08),
                           width: 1,
                         ),
                       ),
@@ -855,14 +886,14 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                             color: isDark ? const Color(0xFF070D09) : const Color(0xFFF4F7F5),
                             borderRadius: BorderRadius.circular(24),
                             border: Border.all(
-                              color: theme.colorScheme.primary.withOpacity(0.1),
+                              color: theme.colorScheme.primary.withValues(alpha: 0.1),
                             ),
                           ),
                           child: Builder(
                             builder: (context) {
                               final Color inactiveColor = isDark
-                                  ? Colors.white.withOpacity(0.4)
-                                  : Colors.black.withOpacity(0.4);
+                                  ? Colors.white.withValues(alpha: 0.4)
+                                  : Colors.black.withValues(alpha: 0.4);
 
                               return Row(
                                 children: [
@@ -1074,7 +1105,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                               },
                               child: Icon(
                                 Icons.remove_red_eye_rounded,
-                                color: theme.colorScheme.primary.withOpacity(0.7),
+                                color: theme.colorScheme.primary.withValues(alpha: 0.7),
                               ),
                             ),
                             hintText: _currentPageIndex == 0
@@ -1085,13 +1116,13 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                         ? 'explorar apps'
                                         : 'explorar correio',
                             hintStyle: TextStyle(
-                              color: isDark ? const Color(0xFFECEFF1).withOpacity(0.4) : Colors.black.withOpacity(0.35),
+                              color: isDark ? const Color(0xFFECEFF1).withValues(alpha: 0.4) : Colors.black.withValues(alpha: 0.35),
                             ),
                             suffixIcon: GestureDetector(
                               onTap: _handleSearchTap,
                               child: Icon(
                                 Icons.search_rounded,
-                                color: theme.colorScheme.primary.withOpacity(0.7),
+                                color: theme.colorScheme.primary.withValues(alpha: 0.7),
                               ),
                             ),
                             filled: true,
@@ -1099,21 +1130,21 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                             contentPadding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 16.0),
                             border: OutlineInputBorder(
                               borderSide: BorderSide(
-                                color: theme.colorScheme.primary.withOpacity(0.1),
+                                color: theme.colorScheme.primary.withValues(alpha: 0.1),
                                 width: 1,
                               ),
                               borderRadius: BorderRadius.circular(24),
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderSide: BorderSide(
-                                color: theme.colorScheme.primary.withOpacity(0.1),
+                                color: theme.colorScheme.primary.withValues(alpha: 0.1),
                                 width: 1,
                               ),
                               borderRadius: BorderRadius.circular(24),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderSide: BorderSide(
-                                color: theme.colorScheme.primary.withOpacity(0.3),
+                                color: theme.colorScheme.primary.withValues(alpha: 0.3),
                                 width: 1.5,
                               ),
                               borderRadius: BorderRadius.circular(24),
@@ -1139,10 +1170,10 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                     filter: ui.ImageFilter.blur(sigmaX: 16, sigmaY: 16),
                     child: Container(
                       decoration: BoxDecoration(
-                        color: (isDark ? Colors.black : Colors.white).withOpacity(0.65),
+                        color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.65),
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                          color: theme.colorScheme.primary.withOpacity(0.2),
+                          color: theme.colorScheme.primary.withValues(alpha: 0.2),
                           width: 1,
                         ),
                       ),
@@ -1171,7 +1202,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                   child: Icon(
                                     Icons.close_rounded,
                                     size: 16,
-                                    color: (isDark ? Colors.white : Colors.black).withOpacity(0.4),
+                                    color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.4),
                                   ),
                                 ),
                               ],
@@ -1208,7 +1239,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                             return Container(
                                               width: 40, height: 40,
                                               decoration: BoxDecoration(
-                                                color: theme.colorScheme.primary.withOpacity(0.15),
+                                                color: theme.colorScheme.primary.withValues(alpha: 0.15),
                                                 borderRadius: BorderRadius.circular(12),
                                               ),
                                               alignment: Alignment.center,
@@ -1222,7 +1253,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                         const SizedBox(height: 4),
                                         Text(
                                           app.label,
-                                          style: TextStyle(fontSize: 9, color: (isDark ? Colors.white : Colors.black).withOpacity(0.8)),
+                                          style: TextStyle(fontSize: 9, color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.8)),
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           textAlign: TextAlign.center,
@@ -1305,11 +1336,11 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                              filter: ui.ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
                              child: Container(
                                decoration: BoxDecoration(
-                                 color: (isDark ? const Color(0xFF1C1C1E) : const Color(0xFFE5E5EA)).withOpacity(0.85),
+                                 color: (isDark ? const Color(0xFF1C1C1E) : const Color(0xFFE5E5EA)).withValues(alpha: 0.85),
                                  borderRadius: const BorderRadius.horizontal(right: Radius.circular(28)),
                                  border: Border(
                                    right: BorderSide(
-                                     color: (isDark ? Colors.white : Colors.black).withOpacity(0.08),
+                                     color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.08),
                                      width: 1.5,
                                    ),
                                  ),
@@ -1399,11 +1430,11 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                              filter: ui.ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
                              child: Container(
                                decoration: BoxDecoration(
-                                 color: (isDark ? const Color(0xFF1C1C1E) : const Color(0xFFE5E5EA)).withOpacity(0.85),
+                                 color: (isDark ? const Color(0xFF1C1C1E) : const Color(0xFFE5E5EA)).withValues(alpha: 0.85),
                                  borderRadius: const BorderRadius.horizontal(left: Radius.circular(28)),
                                  border: Border(
                                    left: BorderSide(
-                                     color: (isDark ? Colors.white : Colors.black).withOpacity(0.08),
+                                     color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.08),
                                      width: 1.5,
                                    ),
                                  ),
@@ -1441,7 +1472,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
             height: 40,
             margin: const EdgeInsets.only(bottom: 24),
             decoration: BoxDecoration(
-              color: theme.colorScheme.primary.withOpacity(0.4),
+              color: theme.colorScheme.primary.withValues(alpha: 0.4),
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -1451,14 +1482,14 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                 ? Center(
                     child: Icon(
                       Icons.apps_rounded,
-                      color: theme.colorScheme.onSurface.withOpacity(0.2),
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.2),
                       size: 24,
                     ),
                   )
                 : ListView.separated(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     itemCount: _mostUsedApps.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 16),
+                    separatorBuilder: (_, _) => const SizedBox(height: 16),
                     physics: const BouncingScrollPhysics(),
                     itemBuilder: (context, index) {
                       final app = _mostUsedApps[index];
@@ -1475,10 +1506,10 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                             child: Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: (isDark ? Colors.white : Colors.black).withOpacity(0.04),
+                                color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
                                 borderRadius: BorderRadius.circular(14),
                                 border: Border.all(
-                                  color: theme.colorScheme.primary.withOpacity(0.1),
+                                  color: theme.colorScheme.primary.withValues(alpha: 0.1),
                                   width: 1,
                                 ),
                               ),
@@ -1514,7 +1545,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
           IconButton(
             icon: Icon(
               Icons.settings_rounded,
-              color: (isDark ? Colors.white : Colors.black).withOpacity(0.4),
+              color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.4),
               size: 20,
             ),
             onPressed: () {
@@ -1542,7 +1573,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
             height: 40,
             margin: const EdgeInsets.only(bottom: 24),
             decoration: BoxDecoration(
-              color: theme.colorScheme.primary.withOpacity(0.4),
+              color: theme.colorScheme.primary.withValues(alpha: 0.4),
               borderRadius: BorderRadius.circular(2),
             ),
           ),
@@ -1686,13 +1717,13 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
           height: 44,
           decoration: BoxDecoration(
             color: enabled 
-                ? theme.colorScheme.primary.withOpacity(0.12)
-                : (isDark ? Colors.white : Colors.black).withOpacity(0.04),
+                ? theme.colorScheme.primary.withValues(alpha: 0.12)
+                : (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: enabled
-                  ? theme.colorScheme.primary.withOpacity(0.3)
-                  : theme.colorScheme.primary.withOpacity(0.1),
+                  ? theme.colorScheme.primary.withValues(alpha: 0.3)
+                  : theme.colorScheme.primary.withValues(alpha: 0.1),
               width: 1,
             ),
           ),
@@ -1700,7 +1731,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
             child: Icon(
               icon,
               size: 20,
-              color: enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface.withOpacity(0.4),
+              color: enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface.withValues(alpha: 0.4),
             ),
           ),
         ),
@@ -1735,7 +1766,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
               ),
               if (!_loadingHardware)
                 IconButton(
-                  icon: Icon(Icons.refresh_rounded, size: 18, color: theme.colorScheme.primary.withOpacity(0.6)),
+                  icon: Icon(Icons.refresh_rounded, size: 18, color: theme.colorScheme.primary.withValues(alpha: 0.6)),
                   constraints: const BoxConstraints(),
                   padding: EdgeInsets.zero,
                   onPressed: () {
@@ -1746,7 +1777,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
             ],
           ),
           const SizedBox(height: 10),
-          Divider(color: theme.colorScheme.primary.withOpacity(0.15)),
+          Divider(color: theme.colorScheme.primary.withValues(alpha: 0.15)),
           
           Expanded(
             child: _loadingHardware
@@ -1884,7 +1915,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                   ),
           ),
           
-          Divider(color: theme.colorScheme.primary.withOpacity(0.15)),
+          Divider(color: theme.colorScheme.primary.withValues(alpha: 0.15)),
           const SizedBox(height: 6),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1894,7 +1925,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                 style: TextStyle(
                   fontSize: 9,
                   fontWeight: FontWeight.w800,
-                  color: theme.colorScheme.primary.withOpacity(0.4),
+                  color: theme.colorScheme.primary.withValues(alpha: 0.4),
                   letterSpacing: 0.5,
                 ),
               ),
@@ -1903,7 +1934,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                 style: TextStyle(
                   fontSize: 8,
                   fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.primary.withOpacity(0.7),
+                  color: theme.colorScheme.primary.withValues(alpha: 0.7),
                 ),
               ),
             ],
@@ -1942,13 +1973,13 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                 child: Icon(
                   Icons.close_rounded,
                   size: 20,
-                  color: (isDark ? Colors.white : Colors.black).withOpacity(0.35),
+                  color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.35),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          Divider(color: (isDark ? Colors.white : Colors.black).withOpacity(0.08)),
+          Divider(color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.08)),
           const SizedBox(height: 8),
           Text(
             'ÚLTIMOS APPS ABERTOS',
@@ -1967,7 +1998,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                       'Nenhum aplicativo recente',
                       style: TextStyle(
                         fontSize: 11,
-                        color: theme.colorScheme.onSurface.withOpacity(0.4),
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
                       ),
                     ),
                   )
@@ -2006,7 +2037,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                     width: 24,
                                     height: 24,
                                     decoration: BoxDecoration(
-                                      color: theme.colorScheme.primary.withOpacity(0.1),
+                                      color: theme.colorScheme.primary.withValues(alpha: 0.1),
                                       shape: BoxShape.circle,
                                     ),
                                     child: Icon(
@@ -2033,7 +2064,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                               Icon(
                                 Icons.chevron_right_rounded,
                                 size: 16,
-                                color: (isDark ? Colors.white : Colors.black).withOpacity(0.3),
+                                color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.3),
                               ),
                             ],
                           ),
@@ -2048,7 +2079,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w700,
-              color: (isDark ? Colors.white : Colors.black).withOpacity(0.3),
+              color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.3),
               letterSpacing: 1.0,
             ),
           ),
@@ -2057,6 +2088,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
     );
   }
 
+// ignore: unused_element
 Widget _buildSidebarItem(
   BuildContext context, {
   required IconData icon,
@@ -2078,7 +2110,7 @@ Widget _buildSidebarItem(
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: theme.colorScheme.primary.withOpacity(0.08),
+              color: theme.colorScheme.primary.withValues(alpha: 0.08),
               shape: BoxShape.circle,
             ),
             child: Icon(icon, color: theme.colorScheme.primary, size: 20),
@@ -2101,7 +2133,7 @@ Widget _buildSidebarItem(
                   subtitle,
                   style: TextStyle(
                     fontSize: 10,
-                    color: (isDark ? Colors.white : Colors.black).withOpacity(0.5),
+                    color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.5),
                   ),
                 ),
               ],
@@ -2113,6 +2145,7 @@ Widget _buildSidebarItem(
   );
 }
 
+  // ignore: unused_element
   Widget _buildSearchOverlay(ThemeData theme, bool isDark) {
     final hasApps = _overlayFilteredApps.isNotEmpty;
     return Padding(
@@ -2124,10 +2157,10 @@ Widget _buildSidebarItem(
           filter: ui.ImageFilter.blur(sigmaX: 16, sigmaY: 16),
           child: Container(
             decoration: BoxDecoration(
-              color: (isDark ? Colors.black : Colors.white).withOpacity(0.6),
+              color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.6),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
-                color: theme.colorScheme.primary.withOpacity(0.25),
+                color: theme.colorScheme.primary.withValues(alpha: 0.25),
                 width: 1.2,
               ),
             ),
@@ -2156,7 +2189,7 @@ Widget _buildSidebarItem(
                             hintText: 'Buscar apps, locais...',
                             hintStyle: TextStyle(
                               fontSize: 13,
-                              color: (isDark ? Colors.white : Colors.black).withOpacity(0.35),
+                              color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.35),
                             ),
                             isDense: true,
                             contentPadding: EdgeInsets.zero,
@@ -2189,7 +2222,7 @@ Widget _buildSidebarItem(
                           child: Icon(
                             Icons.close_rounded,
                             size: 18,
-                            color: (isDark ? Colors.white : Colors.black).withOpacity(0.5),
+                            color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.5),
                           ),
                         ),
                       ),
@@ -2201,7 +2234,7 @@ Widget _buildSidebarItem(
                 if (hasApps) ...[
                   Divider(
                     height: 1,
-                    color: (isDark ? Colors.white : Colors.black).withOpacity(0.07),
+                    color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.07),
                   ),
                   SizedBox(
                     height: 72,
@@ -2235,7 +2268,7 @@ Widget _buildSidebarItem(
                                       width: 36,
                                       height: 36,
                                       decoration: BoxDecoration(
-                                        color: theme.colorScheme.primary.withOpacity(0.15),
+                                        color: theme.colorScheme.primary.withValues(alpha: 0.15),
                                         borderRadius: BorderRadius.circular(10),
                                       ),
                                       alignment: Alignment.center,
@@ -2255,7 +2288,7 @@ Widget _buildSidebarItem(
                                   app.label,
                                   style: TextStyle(
                                     fontSize: 9,
-                                    color: (isDark ? Colors.white : Colors.black).withOpacity(0.75),
+                                    color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.75),
                                   ),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
@@ -2280,94 +2313,83 @@ Widget _buildSidebarItem(
 
   Widget _buildEarthFilterChips(ThemeData theme, bool isDark) {
     final filters = [
-      {'name': 'Todos', 'value': 'Todos', 'icon': Icons.language_rounded},
-      {'name': 'Satélite', 'value': 'Satélite', 'icon': Icons.satellite_alt_rounded},
-      {'name': 'Clima', 'value': 'Clima', 'icon': Icons.cloud_rounded},
+      {'name': 'Solo', 'value': 'Satélite', 'icon': Icons.satellite_alt_rounded},
+      {'name': 'Nuvens', 'value': 'Clima', 'icon': Icons.cloud_rounded},
+      {'name': 'Ventos', 'value': 'Ventos', 'icon': Icons.air_rounded},
       {'name': 'Vetor', 'value': 'Vetor (3D)', 'icon': Icons.grid_view_rounded},
       {'name': 'Monit.', 'value': 'Monitoramento', 'icon': Icons.analytics_rounded},
     ];
 
     final Color inactiveColor = isDark
-        ? Colors.white.withOpacity(0.4)
-        : Colors.black.withOpacity(0.4);
+        ? Colors.white.withValues(alpha: 0.4)
+        : Colors.black.withValues(alpha: 0.4);
 
     return ValueListenableBuilder<Set<String>>(
       valueListenable: VirtualTopography.earthFilterNotifier,
       builder: (context, activeLayers, child) {
-        final double expandedWidth = MediaQuery.of(context).size.width - 90.0;
-
         return SingleChildScrollView(
           scrollDirection: Axis.horizontal,
-          physics: const NeverScrollableScrollPhysics(),
-          child: SizedBox(
-            width: expandedWidth,
-            child: Row(
-              children: filters.map((filter) {
-                final filterName = filter['name'] as String;
-                final filterValue = filter['value'] as String;
-                final filterIcon = filter['icon'] as IconData;
+          physics: const BouncingScrollPhysics(),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: filters.map((filter) {
+              final filterName = filter['name'] as String;
+              final filterValue = filter['value'] as String;
+              final filterIcon = filter['icon'] as IconData;
 
-                final bool isSelected = filterValue == 'Todos'
-                    ? activeLayers.containsAll({'Satélite', 'Clima', 'Vetor (3D)', 'Monitoramento'})
-                    : activeLayers.contains(filterValue);
+              final bool isSelected = activeLayers.contains(filterValue);
 
-                return Expanded(
-                  child: GestureDetector(
-                    onTap: () {
-                      final newSet = Set<String>.from(activeLayers);
-                      if (filterValue == 'Todos') {
-                        if (isSelected) {
-                          newSet.clear();
-                        } else {
-                          newSet.addAll({'Satélite', 'Clima', 'Vetor (3D)', 'Monitoramento'});
-                        }
-                      } else {
-                        if (isSelected) {
-                          newSet.remove(filterValue);
-                        } else {
-                          newSet.add(filterValue);
-                        }
-                      }
-                      VirtualTopography.earthFilterNotifier.value = newSet;
-                    },
-                    child: Container(
-                      height: double.infinity,
-                      margin: EdgeInsets.zero,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? theme.colorScheme.primary
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            filterIcon,
-                            size: 13,
+              return Padding(
+                padding: const EdgeInsets.only(right: 6.0),
+                child: GestureDetector(
+                  onTap: () {
+                    final newSet = Set<String>.from(activeLayers);
+                    if (isSelected) {
+                      newSet.remove(filterValue);
+                    } else {
+                      newSet.add(filterValue);
+                    }
+                    if (newSet.isEmpty) {
+                      newSet.addAll(['Satélite', 'Clima']);
+                    }
+                    VirtualTopography.earthFilterNotifier.value = newSet;
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? theme.colorScheme.primary
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          filterIcon,
+                          size: 13,
+                          color: isSelected
+                              ? theme.colorScheme.onPrimary
+                              : inactiveColor,
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          filterName,
+                          style: TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
                             color: isSelected
                                 ? theme.colorScheme.onPrimary
                                 : inactiveColor,
                           ),
-                          const SizedBox(width: 3),
-                          Text(
-                            filterName,
-                            style: TextStyle(
-                              fontSize: 9,
-                              fontWeight: FontWeight.bold,
-                              color: isSelected
-                                  ? theme.colorScheme.onPrimary
-                                  : inactiveColor,
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
-                );
-              }).toList(),
-            ),
+                ),
+              );
+            }).toList(),
           ),
         );
       },
@@ -2382,7 +2404,7 @@ Widget _buildSidebarItem(
         style: TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.w900,
-          color: theme.colorScheme.primary.withOpacity(0.55),
+          color: theme.colorScheme.primary.withValues(alpha: 0.55),
           letterSpacing: 0.8,
         ),
       ),
@@ -2409,15 +2431,15 @@ Widget _buildSidebarItem(
       margin: const EdgeInsets.symmetric(vertical: 4),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: (isDark ? Colors.white : Colors.black).withOpacity(0.04),
+        color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: theme.colorScheme.primary.withOpacity(0.08),
+          color: theme.colorScheme.primary.withValues(alpha: 0.08),
         ),
       ),
       child: Row(
         children: [
-          Icon(Icons.wifi_rounded, size: 20, color: enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface.withOpacity(0.35)),
+          Icon(Icons.wifi_rounded, size: 20, color: enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface.withValues(alpha: 0.35)),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -2430,14 +2452,14 @@ Widget _buildSidebarItem(
                 const SizedBox(height: 2),
                 Text(
                   subtitle,
-                  style: TextStyle(fontSize: 10, color: theme.colorScheme.onSurface.withOpacity(0.55)),
+                  style: TextStyle(fontSize: 10, color: theme.colorScheme.onSurface.withValues(alpha: 0.55)),
                 ),
               ],
             ),
           ),
           Switch(
             value: enabled,
-            activeColor: theme.colorScheme.primary,
+            activeThumbColor: theme.colorScheme.primary,
             onChanged: (val) async {
               await LauncherService.toggleWifi(val);
               Future.delayed(const Duration(milliseconds: 1200), () {
@@ -2466,15 +2488,15 @@ Widget _buildSidebarItem(
       margin: const EdgeInsets.symmetric(vertical: 4),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: (isDark ? Colors.white : Colors.black).withOpacity(0.04),
+        color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: theme.colorScheme.primary.withOpacity(0.08),
+          color: theme.colorScheme.primary.withValues(alpha: 0.08),
         ),
       ),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface.withOpacity(0.35)),
+          Icon(icon, size: 20, color: enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface.withValues(alpha: 0.35)),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -2487,7 +2509,7 @@ Widget _buildSidebarItem(
                 const SizedBox(height: 2),
                 Text(
                   subtitle,
-                  style: TextStyle(fontSize: 10, color: theme.colorScheme.onSurface.withOpacity(0.55)),
+                  style: TextStyle(fontSize: 10, color: theme.colorScheme.onSurface.withValues(alpha: 0.55)),
                 ),
               ],
             ),
@@ -2495,7 +2517,7 @@ Widget _buildSidebarItem(
           if (available)
             Switch(
               value: enabled,
-              activeColor: theme.colorScheme.primary,
+              activeThumbColor: theme.colorScheme.primary,
               onChanged: onToggle,
             ),
         ],
@@ -2512,7 +2534,7 @@ Widget _buildSidebarItem(
           child: Center(
             child: Text(
               'Nenhum sensor de hardware detectado',
-              style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurface.withOpacity(0.4)),
+              style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurface.withValues(alpha: 0.4)),
             ),
           ),
         )
@@ -2589,10 +2611,10 @@ Widget _buildSidebarItem(
             margin: const EdgeInsets.symmetric(vertical: 3),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: (isDark ? Colors.white : Colors.black).withOpacity(0.02),
+              color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.02),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: theme.colorScheme.primary.withOpacity(0.04),
+                color: theme.colorScheme.primary.withValues(alpha: 0.04),
               ),
             ),
             child: Column(
@@ -2600,7 +2622,7 @@ Widget _buildSidebarItem(
               children: [
                 Row(
                   children: [
-                    Icon(Icons.sensors_rounded, size: 14, color: theme.colorScheme.primary.withOpacity(0.6)),
+                    Icon(Icons.sensors_rounded, size: 14, color: theme.colorScheme.primary.withValues(alpha: 0.6)),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Column(
@@ -2608,14 +2630,14 @@ Widget _buildSidebarItem(
                         children: [
                           Text(
                             name,
-                            style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface.withOpacity(0.85)),
+                            style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface.withValues(alpha: 0.85)),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                           const SizedBox(height: 2),
                           Text(
                             'Fabricante: $vendor • Consumo: ${power.toStringAsFixed(2)}mA',
-                            style: TextStyle(fontSize: 8.5, color: theme.colorScheme.onSurface.withOpacity(0.45)),
+                            style: TextStyle(fontSize: 8.5, color: theme.colorScheme.onSurface.withValues(alpha: 0.45)),
                           ),
                         ],
                       ),
@@ -2625,12 +2647,12 @@ Widget _buildSidebarItem(
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
                         decoration: BoxDecoration(
-                          color: theme.colorScheme.primary.withOpacity(0.05),
+                          color: theme.colorScheme.primary.withValues(alpha: 0.05),
                           borderRadius: BorderRadius.circular(5),
                         ),
                         child: Text(
                           type,
-                          style: TextStyle(fontSize: 6.5, fontWeight: FontWeight.bold, color: theme.colorScheme.primary.withOpacity(0.8)),
+                          style: TextStyle(fontSize: 6.5, fontWeight: FontWeight.bold, color: theme.colorScheme.primary.withValues(alpha: 0.8)),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -2640,7 +2662,7 @@ Widget _buildSidebarItem(
                       icon: Icon(
                         isExpanded ? Icons.info_rounded : Icons.info_outline_rounded,
                         size: 14,
-                        color: theme.colorScheme.primary.withOpacity(isExpanded ? 0.95 : 0.5),
+                        color: theme.colorScheme.primary.withValues(alpha: isExpanded ? 0.95 : 0.5),
                       ),
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
@@ -2658,13 +2680,13 @@ Widget _buildSidebarItem(
                 ),
                 if (isExpanded) ...[
                   const SizedBox(height: 6),
-                  Divider(color: theme.colorScheme.primary.withOpacity(0.08)),
+                  Divider(color: theme.colorScheme.primary.withValues(alpha: 0.08)),
                   const SizedBox(height: 4),
                   Text(
                     desc,
                     style: TextStyle(
                       fontSize: 8.5,
-                      color: theme.colorScheme.onSurface.withOpacity(0.65),
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.65),
                       height: 1.3,
                     ),
                   ),
