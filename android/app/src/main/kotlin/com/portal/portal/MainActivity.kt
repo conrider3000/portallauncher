@@ -111,8 +111,16 @@ class MainActivity : FlutterActivity() {
                     openLocationSettings()
                     result.success(true)
                 }
+                "openAirplaneModeSettings" -> {
+                    openAirplaneModeSettings()
+                    result.success(true)
+                }
                 "openCameraApp" -> {
                     openCameraApp()
+                    result.success(true)
+                }
+                "openCalculatorApp" -> {
+                    openCalculatorApp()
                     result.success(true)
                 }
                 "isAutoRotationEnabled" -> {
@@ -124,6 +132,10 @@ class MainActivity : FlutterActivity() {
                 }
                 "openGoogleLens" -> {
                     openGoogleLens()
+                    result.success(true)
+                }
+                "openVoiceRecorderApp" -> {
+                    openVoiceRecorderApp()
                     result.success(true)
                 }
                 "clickNotification" -> {
@@ -295,16 +307,27 @@ class MainActivity : FlutterActivity() {
 
     private fun launchApp(packageName: String, className: String) {
         try {
-            val intent = Intent().apply {
-                setClassName(packageName, className)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            val intent = if (className.isNotEmpty()) {
+                Intent().apply {
+                    setClassName(packageName, className)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                }
+            } else {
+                packageManager.getLaunchIntentForPackage(packageName)?.apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                }
             }
-            startActivity(intent)
+            if (intent != null) {
+                startActivity(intent)
+            } else {
+                val fallbackIntent = packageManager.getLaunchIntentForPackage(packageName)
+                fallbackIntent?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (fallbackIntent != null) startActivity(fallbackIntent)
+            }
         } catch (e: Exception) {
-            // Fallback to standard launch intent if className fails
             val intent = packageManager.getLaunchIntentForPackage(packageName)
             if (intent != null) {
-                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
                 startActivity(intent)
             }
         }
@@ -591,9 +614,50 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {}
     }
 
+    private fun openAirplaneModeSettings() {
+        try {
+            val intent = Intent(Settings.ACTION_AIRPLANE_MODE_SETTINGS)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        } catch (e: Exception) {
+            try {
+                val intent = Intent(Settings.ACTION_WIRELESS_SETTINGS)
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(intent)
+            } catch (ex: Exception) {}
+        }
+    }
+
     private fun openCameraApp() {
         try {
             val intent = Intent(android.provider.MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        } catch (e: Exception) {}
+    }
+
+    private fun openCalculatorApp() {
+        val calcPackages = listOf(
+            "com.sec.android.app.popupcalculator",
+            "com.google.android.calculator",
+            "com.android.calculator2",
+            "com.miui.calculator",
+            "com.oneplus.calculator",
+            "com.huawei.calculator"
+        )
+        for (pkg in calcPackages) {
+            try {
+                val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
+                if (launchIntent != null) {
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    startActivity(launchIntent)
+                    return
+                }
+            } catch (e: Exception) {}
+        }
+        try {
+            val intent = Intent(Intent.ACTION_MAIN)
+            intent.addCategory(Intent.CATEGORY_APP_CALCULATOR)
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(intent)
         } catch (e: Exception) {}
@@ -743,5 +807,36 @@ class MainActivity : FlutterActivity() {
             }
             startActivity(intent)
         } catch (e: Exception) {}
+    }
+
+    private fun openVoiceRecorderApp() {
+        val pm = packageManager
+        val recorderPackages = listOf(
+            "com.sec.android.app.voicenote",
+            "com.google.android.soundrecorder",
+            "com.android.soundrecorder"
+        )
+        for (pkg in recorderPackages) {
+            val launchIntent = pm.getLaunchIntentForPackage(pkg)
+            if (launchIntent != null) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                startActivity(launchIntent)
+                return
+            }
+        }
+        try {
+            val intent = Intent(android.provider.MediaStore.Audio.Media.RECORD_SOUND_ACTION).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            try {
+                val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+                    type = "audio/*"
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(intent)
+            } catch (e2: Exception) {}
+        }
     }
 }

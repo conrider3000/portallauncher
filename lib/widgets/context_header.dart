@@ -296,6 +296,7 @@ class ContextHeader extends StatefulWidget {
   static final ValueNotifier<HeaderMode> isPanelOpenNotifier = ValueNotifier(HeaderMode.filter);
   static final ValueNotifier<bool> isExtendedNotifier = ValueNotifier(false);
   static final ValueNotifier<bool> locationUpdateNotifier = ValueNotifier(false);
+  static String lastFetchTimestamp = 'Sincronizando...';
 
   static Future<void> saveHeaderMode(HeaderMode mode) async {
     try {
@@ -580,6 +581,9 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
             if (altitude > 0) {
               _userAltitude = (altitude as num).toDouble();
             }
+            final now = DateTime.now();
+            ContextHeader.lastFetchTimestamp =
+                '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
             _interpretWeatherCode(code as int);
           });
         }
@@ -1003,8 +1007,12 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
             },
             child: Padding(
               padding: const EdgeInsets.only(left: 16.0),
-              child: Container(
-                padding: const EdgeInsets.all(14),
+              child: GestureDetector(
+                onTap: () {
+                  // Absorb taps inside extended context header so it stays open
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
                   color: isDark ? const Color(0xFF070D09) : const Color(0xFFF4F7F5),
                   borderRadius: BorderRadius.circular(24),
@@ -1380,6 +1388,7 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
               ),
             ),
           ),
+        ),
         ],
       ),
     );

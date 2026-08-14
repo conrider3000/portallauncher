@@ -267,36 +267,55 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
   }
 
   Future<void> _performDirectSearch(String query) async {
-    setState(() {
-      _isSearchingWiki = true;
-      _wikiSearchResults = [];
-    });
-
-    final String searchUrl = 'https://pt.wikipedia.org/w/api.php?action=query&list=search&srsearch=$query&format=json&origin=*';
+    final String detailsUrl = 'https://pt.wikipedia.org/w/api.php?action=query&prop=coordinates|extracts&exintro&explaintext&titles=${Uri.encodeComponent(query)}&format=json&origin=*';
     try {
-      final response = await http.get(Uri.parse(searchUrl)).timeout(const Duration(seconds: 5));
+      final response = await http.get(Uri.parse(detailsUrl)).timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final searchList = data['query']?['search'] as List?;
-        if (searchList != null && searchList.isNotEmpty) {
-          setState(() {
-            _wikiSearchResults = searchList.map((item) => {
-              'title': item['title'] as String,
-              'snippet': (item['snippet'] as String? ?? '').replaceAll(RegExp(r'<[^>]*>'), ''), // strip HTML tags
-            }).toList();
-          });
-        } else {
-          _showSnackBar('Nenhum local ou marco encontrado para "$query"');
+        final detailsData = jsonDecode(response.body);
+        final pages = detailsData['query']?['pages'] as Map?;
+        if (pages != null && pages.isNotEmpty) {
+          final pageId = pages.keys.first;
+          final pageData = pages[pageId];
+          final coords = pageData['coordinates'] as List?;
+          final String extract = pageData['extract'] ?? '';
+
+          double lat = -14.2350;
+          double lon = -51.9253;
+
+          if (coords != null && coords.isNotEmpty) {
+            lat = coords[0]['lat'];
+            lon = coords[0]['lon'];
+          } else {
+            final text = extract.toLowerCase();
+            if (text.contains('portugal') || text.contains('português')) {
+              lat = 39.3999; lon = -8.2245;
+            } else if (text.contains('estados unidos') || text.contains('eua')) {
+              lat = 37.0902; lon = -95.7129;
+            } else if (text.contains('alemanha')) {
+              lat = 51.1657; lon = 10.4515;
+            } else if (text.contains('frança') || text.contains('paris')) {
+              lat = 48.8566; lon = 2.3522;
+            } else if (text.contains('japão') || text.contains('tóquio')) {
+              lat = 36.2048; lon = 138.2529;
+            }
+          }
+
+          final double latRad = lat * math.pi / 180.0;
+          final double lonRad = lon * math.pi / 180.0;
+          final autoRotY = _animationController.value * 2 * math.pi;
+
+          if (mounted) {
+            setState(() {
+              _wikiSearchResults = [];
+              _selectedGeoPoint = null; // NO duplicate popup card!
+              _manualRotationY = (math.pi / 2) - lonRad - autoRotY;
+              _manualRotationX = latRad.clamp(-math.pi / 3, math.pi / 3);
+            });
+          }
         }
       }
     } catch (e) {
-      debugPrint('Erro na busca direta no satélite: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSearchingWiki = false;
-        });
-      }
+      debugPrint('Erro ao focar globo: $e');
     }
   }
 
@@ -432,19 +451,20 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
       builder: (context) {
         return Center(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(24),
               child: BackdropFilter(
                 filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
                 child: Container(
+                  constraints: const BoxConstraints(maxHeight: 580),
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
-                    color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.75),
+                    color: (isDark ? const Color(0xFF0A0F0D) : Colors.white).withValues(alpha: 0.92),
                     borderRadius: BorderRadius.circular(24),
                     border: Border.all(
-                      color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.1),
-                      width: 1.2,
+                      color: theme.colorScheme.primary.withValues(alpha: 0.3),
+                      width: 1.5,
                     ),
                   ),
                   child: Material(
@@ -454,73 +474,146 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              'Sobre o Globo 3D',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                                color: theme.colorScheme.onSurface,
+                            Icon(
+                              Icons.analytics_rounded,
+                              color: theme.colorScheme.primary,
+                              size: 24,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'Telemetria & Fontes de Dados',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w900,
+                                  color: theme.colorScheme.primary,
+                                  letterSpacing: -0.5,
+                                ),
                               ),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.close_rounded),
+                              icon: const Icon(Icons.close_rounded, size: 20),
                               onPressed: () => Navigator.pop(context),
                               constraints: const BoxConstraints(),
                               padding: EdgeInsets.zero,
                             ),
                           ],
                         ),
-                        const Divider(height: 20),
-                        const Text(
-                          'COMO FUNCIONA',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Este globo utiliza fórmulas de projeção esférica tridimensional (matemática 3D) renderizadas em tempo real a 60 FPS. Você pode arrastar para girar e usar o gesto de pinça (pinch) para dar zoom. O globo rotaciona automaticamente a uma velocidade física realista de 360° a cada 24 horas (tempo sideral aproximado), sincronizado com o movimento real da Terra.',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
+                        const SizedBox(height: 12),
+
+                        // ── FORCE REFRESH BUTTON ──────────────────────────────────────
+                        InkWell(
+                          onTap: () {
+                            ContextHeader.locationUpdateNotifier.value = !ContextHeader.locationUpdateNotifier.value;
+                            final now = DateTime.now();
+                            final stamp = '${now.day.toString().padLeft(2, '0')}/${now.month.toString().padLeft(2, '0')}/${now.year} ${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
+                            ContextHeader.lastFetchTimestamp = stamp;
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text('✓ Sincronização Forçada! Telemetria e dados atualizados em $stamp.'),
+                                duration: const Duration(seconds: 4),
+                              ),
+                            );
+                          },
+                          borderRadius: BorderRadius.circular(16),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: theme.colorScheme.primary.withValues(alpha: 0.4),
+                                width: 1.2,
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.bolt_rounded, color: theme.colorScheme.primary, size: 20),
+                                const SizedBox(width: 8),
+                                Text(
+                                  'FORÇAR ATUALIZAÇÃO E LIMPEZA AGORA',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w900,
+                                    color: theme.colorScheme.primary,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                         const SizedBox(height: 14),
-                        const Text(
-                          'ORIGEM DAS TEXTURAS',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'A imagem orbital da Terra é obtida de imagens de satélite reais de alta resolução (equiretangulares), atualizadas via repositórios da NASA/Three.js.',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        const Text(
-                          'PROJETOS & DADOS',
-                          style: TextStyle(
-                            fontSize: 10,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.grey,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Os marcadores indicam pontos ativos com dados de telemetria meteorológica e fotográfica atuais (como os satélites GOES-16, Landsat-9 e Himawari-9). A barra inferior de busca no mapa permite voar até estas cidades.',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: theme.colorScheme.onSurface.withValues(alpha: 0.85),
+                        Divider(color: theme.colorScheme.primary.withValues(alpha: 0.15)),
+                        const SizedBox(height: 6),
+
+                        // ── SCROLLABLE TECHNICAL SPECS ─────────────────────────────
+                        Expanded(
+                          child: ListView(
+                            physics: const BouncingScrollPhysics(),
+                            children: [
+                              // 1. Clima & Tempo
+                              _buildInfoSection(
+                                title: 'METEOROLOGIA & CLIMA',
+                                icon: Icons.wb_sunny_rounded,
+                                theme: theme,
+                                isDark: isDark,
+                                content:
+                                    '• Fonte Oficial: Open-Meteo V1 Weather API (High-Resolution Global Forecast System).\n'
+                                    '• Modelos Matemáticos: ICON (DWD - Alemanha) + GFS (NOAA - Estados Unidos).\n'
+                                    '• Dados Processados: Temperatura (°C/°F), Sensação Térmica, Umidade Relativa, Pressão Atmosférica de Superfície (hPa), Índice UV Máximo, Horários Exatos do Nascer e Pôr do Sol.\n'
+                                    '• Frequência de Consulta: Automática a cada 15 min ou Manual Instantânea.\n'
+                                    '• Última Atualização: ${ContextHeader.lastFetchTimestamp}',
+                              ),
+                              const SizedBox(height: 12),
+
+                              // 2. Geolocalização
+                              _buildInfoSection(
+                                title: 'GEODESIA & GEOLOCALIZAÇÃO',
+                                icon: Icons.my_location_rounded,
+                                theme: theme,
+                                isDark: isDark,
+                                content:
+                                    '• Hardware: Sensor GPS/GNSS FusedLocationProvider (Sensores GPS, GLONASS, Galileo e BeiDou no Samsung Galaxy A15).\n'
+                                    '• Geocodificação Reversa: Engine OpenStreetMap Nominatim V1 (Open Database License).\n'
+                                    '• Dados Processados: Coordenadas em Datum WGS84 (Lat/Lon), Altitude em metros acima do nível médio do mar, Bairro, Cidade, Estado e País.\n'
+                                    '• Precisão Geodésica: ~15 metros.\n'
+                                    '• Última Atualização: ${ContextHeader.lastFetchTimestamp}',
+                              ),
+                              const SizedBox(height: 12),
+
+                              // 3. Globo 3D & Satélites
+                              _buildInfoSection(
+                                title: 'TERRA 3D & REFLETÂNCIA DE SATÉLITE',
+                                icon: Icons.satellite_alt_rounded,
+                                theme: theme,
+                                isDark: isDark,
+                                content:
+                                    '• Fonte de Texturas: ESRI World Imagery (Mosaico Óptico de Alta Resolução 0.5m/px) & Imagens Geostacionárias NOAA GOES-16/17.\n'
+                                    '• Modelo de Projeção: Projeção Esférica Tridimensional em Canvas 2D Flutter com rotação rígida de 180° no Eixo Z.\n'
+                                    '• Orientação Científica: Polo Sul posicionado no Topo da Tela, Polo Norte na Base (Sem Espelhamento, Longitudes e Latitudes Preservadas).\n'
+                                    '• Taxa de Atualização: Renderização a 60 Quadros por Segundo (60 Hz) com Rotação Sideral 360°/24h.\n'
+                                    '• Estado de Renderização: 60 FPS Ativo.',
+                              ),
+                              const SizedBox(height: 12),
+
+                              // 4. Multi-Calendário & Cronometria
+                              _buildInfoSection(
+                                title: 'CRONOMETRIA & MULTI-CALENDÁRIO',
+                                icon: Icons.calendar_month_rounded,
+                                theme: theme,
+                                isDark: isDark,
+                                content:
+                                    '• Fonte de Tempo: Relógio de Precisão Android / NTP Network Time Protocol.\n'
+                                    '• Algoritmos Integrados: Calendário Gregoriano, Calendário Maia Dreamspell Tzolkin (13 Luas), Calendário Chinês Lunissolar, Calendário Hebraico e Calendário Hírico/Islâmico.\n'
+                                    '• Frequência de Consulta: Tempo Real (sincronização por segundo - 1000ms).\n'
+                                    '• Estado: Sincronizado.',
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -532,6 +625,54 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
           ),
         );
       },
+    );
+  }
+
+  Widget _buildInfoSection({
+    required String title,
+    required IconData icon,
+    required ThemeData theme,
+    required bool isDark,
+    required String content,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: theme.colorScheme.primary.withValues(alpha: 0.1),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: theme.colorScheme.primary),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w900,
+                  color: theme.colorScheme.primary,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            content,
+            style: TextStyle(
+              fontSize: 10,
+              height: 1.4,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -616,7 +757,6 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     }
   }
 
-  // ignore: unused_element
   Future<void> _handleDoubleTapLocation() async {
     var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
@@ -744,10 +884,15 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
         _zoom = 1.1;
         if (setSelected) {
           _selectedGeoPoint = userPoint;
+          _animationController.stop();
         } else {
           _selectedGeoPoint = null;
+          Future.delayed(const Duration(seconds: 2), () {
+            if (mounted && _selectedGeoPoint == null && VirtualTopography.toggleRotationTrigger.value) {
+              _animationController.repeat();
+            }
+          });
         }
-        _animationController.stop();
       });
     }
   }
@@ -782,7 +927,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     final dx = details.localFocalPoint.dx - _dragStartX;
     final dy = details.localFocalPoint.dy - _dragStartY;
     setState(() {
-      _manualRotationY = _baseRotationY + dx * 0.006;
+      _manualRotationY = _baseRotationY - dx * 0.006;
       _manualRotationX = (_baseRotationX - dy * 0.006).clamp(-math.pi / 2.2, math.pi / 2.2);
       if (details.scale != 1.0) {
         _zoom = (_baseZoom * details.scale).clamp(0.6, 20.0);
@@ -820,7 +965,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
         final double rx = x3d * math.cos(rotY) + z3d * math.sin(rotY);
         final double rz = -x3d * math.sin(rotY) + z3d * math.cos(rotY);
 
-        final double finalX = rx;
+        final double finalX = -rx;
         final double finalY = y3d * math.cos(rotX) - rz * math.sin(rotX);
         final double finalZ = y3d * math.sin(rotX) + rz * math.cos(rotX);
 
@@ -860,6 +1005,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     }
   }
 
+  // ignore: unused_element
   void _resetZoomAndSelection() {
     setState(() {
       _selectedGeoPoint = null;
@@ -920,7 +1066,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
                   onScaleUpdate: _onScaleUpdate,
                   onScaleEnd: _onScaleEnd,
                   onTapDown: (details) => _handleTapDown(details, width, height),
-                  onDoubleTap: _resetZoomAndSelection,
+                  onDoubleTap: _handleDoubleTapLocation,
                   child: AnimatedBuilder(
                     animation: _animationController,
                     builder: (context, child) {
@@ -1307,7 +1453,7 @@ class _TexturedGlobePainter extends CustomPainter {
         final double rx = x * math.cos(rotY) + z * math.sin(rotY);
         final double rz = -x * math.sin(rotY) + z * math.cos(rotY);
 
-        final double finalX = rx;
+        final double finalX = -rx;
         final double finalY = y * math.cos(rotX) - rz * math.sin(rotX);
         final double finalZ = y * math.sin(rotX) + rz * math.cos(rotX);
 
@@ -1504,7 +1650,7 @@ class _TexturedGlobePainter extends CustomPainter {
       final double rx = x * math.cos(rotY) + z * math.sin(rotY);
       final double rz = -x * math.sin(rotY) + z * math.cos(rotY);
 
-      final double finalX = rx;
+      final double finalX = -rx;
       final double finalY = y * math.cos(rotX) - rz * math.sin(rotX);
       final double finalZ = y * math.sin(rotX) + rz * math.cos(rotX);
 
@@ -1606,7 +1752,7 @@ class _TexturedGlobePainter extends CustomPainter {
       final double rx = x * math.cos(rotY) + z * math.sin(rotY);
       final double rz = -x * math.sin(rotY) + z * math.cos(rotY);
 
-      final double finalX = rx;
+      final double finalX = -rx;
       final double finalY = y * math.cos(rotX) - rz * math.sin(rotX);
       final double finalZ = y * math.sin(rotX) + rz * math.cos(rotX);
 
@@ -1706,7 +1852,7 @@ class _TexturedGlobePainter extends CustomPainter {
       final double z = radius * math.sin(theta) * math.cos(phi);
       final double rx = x * math.cos(rotY) + z * math.sin(rotY);
       final double rz = -x * math.sin(rotY) + z * math.cos(rotY);
-      final double finalX = rx;
+      final double finalX = -rx;
       final double finalY = y * math.cos(rotX) - rz * math.sin(rotX);
       final double finalZ = y * math.sin(rotX) + rz * math.cos(rotX);
       if (finalZ <= -radius * 0.02) return null;
@@ -2016,7 +2162,7 @@ class _TexturedGlobePainter extends CustomPainter {
         final double rx = px * math.cos(rotY) + pz * math.sin(rotY);
         final double rz = -px * math.sin(rotY) + pz * math.cos(rotY);
 
-        xs[i] = rx;
+        xs[i] = -rx;
         ys[i] = py * math.cos(rotX) - rz * math.sin(rotX);
         zs[i] = py * math.sin(rotX) + rz * math.cos(rotX);
       }

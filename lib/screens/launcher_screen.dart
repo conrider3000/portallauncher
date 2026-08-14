@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import '../services/launcher_service.dart';
 import '../services/apps_service.dart';
 import '../utils/platform_helper.dart';
@@ -35,11 +37,12 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
   final FocusNode _overlayFocusNode = FocusNode();
   // ignore: unused_field
   bool _searchOverlayOpen = false;
-  double _lastPointerDownX = 0.0;
   double _sideBarWidth = 0.0;
   double _leftBarWidth = 0.0;
   bool _flashlightEnabled = false;
   bool _autoRotationEnabled = false;
+  bool _isOfflineMode = false;
+  int _rightSidebarTabIndex = 0; // 0: Mais Utilizados & Telemetria, 1: Histórico Recente
 
   // For unified app search inside the overlay
   List<AppInfo> _allApps = [];
@@ -48,35 +51,122 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
   final Map<String, Uint8List?> _overlayIconCache = {};
 
   Map<String, dynamic> _hardwareInfo = {};
-  bool _loadingHardware = true;
   List<AppInfo> _mostUsedApps = [];
-  final Set<String> _expandedSensors = {};
   bool _fmRadioSimEnabled = false;
+  DateTime? _lastLeftBarOpenedTime;
+  DateTime? _lastRightBarOpenedTime;
 
-  final Map<String, String> _sensorDescriptions = {
-    'accelerometer': 'Mede aceleração linear em 3 eixos. Usado para detectar orientação da tela e contagem de passos.',
-    'gyroscope': 'Mede a velocidade de rotação angular do celular. Essencial para controle de giroscópio em jogos 3D.',
-    'magnetic': 'Mede a intensidade do campo magnético ambiente (bússola). Guia a orientação do GPS no mapa.',
-    'proximity': 'Detecta quando um objeto está próximo à tela. Desliga o visor em chamadas para evitar toques acidentais.',
-    'light': 'Mede o nível de iluminação ambiente. Controla o ajuste automático de brilho do display.',
-    'pressure': 'Mede a pressão atmosférica (barômetro). Auxilia na precisão da altitude do GPS e previsão local.',
-    'gravity': 'Determina o vetor de atração gravitacional do planeta em relação aos eixos do dispositivo.',
-    'linear': 'Mede a aceleração livre do aparelho excluindo a gravidade (aceleração linear pura).',
-    'rotation': 'Combina acelerômetro, giroscópio e bússola para mapear a orientação espacial 3D completa.',
-    'step': 'Conta e detecta os passos dados pelo usuário (pedômetro físico).',
-    'temperature': 'Mede a temperatura ambiente ao redor do circuito ou do ambiente.',
-    'humidity': 'Mede a umidade relativa do ar externa.',
-  };
+  // Wikipedia Interactive Overlay Flow
+  int _exploreOverlayMode = 0; // 0: Menu, 1: Candidate Terms, 2: Full Article
+  List<Map<String, String>> _wikiTermsList = [];
+  bool _loadingWikiTerms = false;
+  Map<String, String>? _selectedWikiArticle;
+  bool _loadingWikiArticle = false;
 
-  String _getSensorDescription(String name, String type) {
-    final lowerName = name.toLowerCase();
-    final lowerType = type.toLowerCase();
-    for (var entry in _sensorDescriptions.entries) {
-      if (lowerName.contains(entry.key) || lowerType.contains(entry.key)) {
-        return entry.value;
+  Future<void> _fetchWikiCandidateTerms(String query) async {
+    setState(() {
+      _exploreOverlayMode = 1;
+      _loadingWikiTerms = true;
+      _wikiTermsList = [];
+    });
+
+    final String searchUrl = 'https://pt.wikipedia.org/w/api.php?action=query&list=search&srsearch=${Uri.encodeComponent(query)}&format=json&origin=*';
+    try {
+      final response = await http.get(Uri.parse(searchUrl)).timeout(const Duration(seconds: 6));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final searchList = data['query']?['search'] as List?;
+        if (searchList != null && searchList.isNotEmpty) {
+          final List<Map<String, String>> terms = [];
+          for (var item in searchList) {
+            final title = item['title'] as String? ?? '';
+            final snippet = (item['snippet'] as String? ?? '').replaceAll(RegExp(r'<[^>]*>'), '');
+            final timestamp = item['timestamp'] as String? ?? '';
+            terms.add({
+              'title': title,
+              'snippet': snippet,
+              'timestamp': _formatWikiDate(timestamp),
+            });
+          }
+          if (mounted) {
+            setState(() {
+              _wikiTermsList = terms;
+              _loadingWikiTerms = false;
+            });
+          }
+        } else {
+          if (mounted) {
+            setState(() {
+              _wikiTermsList = [];
+              _loadingWikiTerms = false;
+            });
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loadingWikiTerms = false;
+        });
       }
     }
-    return 'Sensor físico integrado para medição de telemetria nativa do hardware.';
+  }
+
+  Future<void> _fetchWikiArticleFull(String title) async {
+    setState(() {
+      _exploreOverlayMode = 2;
+      _loadingWikiArticle = true;
+      _selectedWikiArticle = null;
+    });
+
+    final String url = 'https://pt.wikipedia.org/w/api.php?action=query&prop=extracts|revisions&rvprop=timestamp&explaintext&titles=${Uri.encodeComponent(title)}&format=json&origin=*';
+    try {
+      final response = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 8));
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final pages = data['query']?['pages'] as Map?;
+        if (pages != null && pages.isNotEmpty) {
+          final pageId = pages.keys.first;
+          final pageData = pages[pageId];
+          final String extract = pageData['extract'] ?? 'Conteúdo indisponível.';
+          final revisions = pageData['revisions'] as List?;
+          String dateStr = 'Atualização recente';
+          if (revisions != null && revisions.isNotEmpty) {
+            final ts = revisions[0]['timestamp'] as String? ?? '';
+            dateStr = _formatWikiDate(ts);
+          }
+
+          if (mounted) {
+            setState(() {
+              _selectedWikiArticle = {
+                'title': title,
+                'extract': extract,
+                'updated': dateStr,
+              };
+              _loadingWikiArticle = false;
+            });
+            // Focus 3D Globe camera on term
+            VirtualTopography.directSearchTrigger.value = title;
+          }
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _loadingWikiArticle = false;
+        });
+      }
+    }
+  }
+
+  String _formatWikiDate(String isoString) {
+    if (isoString.isEmpty) return 'Recente';
+    try {
+      final dt = DateTime.parse(isoString).toLocal();
+      return '${dt.day.toString().padLeft(2, '0')}/${dt.month.toString().padLeft(2, '0')}/${dt.year} às ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    } catch (_) {
+      return isoString;
+    }
   }
 
   Future<void> _loadMostUsedApps() async {
@@ -84,10 +174,12 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
       final apps = await AppsService.getInstalledApps();
       _allApps = apps;
     }
-    final recent = await AppsService.getRecentApps(_allApps);
+    final List<AppInfo> appsList = _rightSidebarTabIndex == 0
+        ? await AppsService.getMostUsedApps(_allApps)
+        : await AppsService.getRecentApps(_allApps);
     if (mounted) {
       setState(() {
-        _mostUsedApps = recent;
+        _mostUsedApps = appsList;
       });
     }
   }
@@ -96,18 +188,18 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
     try {
       final info = await LauncherService.getDeviceHardwareInfo();
       if (mounted) {
+        final wifi = info['wifi'] as Map? ?? {};
+        final bt = info['bluetooth'] as Map? ?? {};
+        final bool wifiOn = wifi['enabled'] == true;
+        final bool btOn = bt['enabled'] == true;
         setState(() {
           _hardwareInfo = info;
-          _loadingHardware = false;
+          if (wifiOn || btOn) {
+            _isOfflineMode = false;
+          }
         });
       }
-    } catch (_) {
-      if (mounted) {
-        setState(() {
-          _loadingHardware = false;
-        });
-      }
-    }
+    } catch (_) {}
   }
 
   Future<void> _loadInitialStates() async {
@@ -225,7 +317,9 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
       value: 0.0, // Initially collapsed
     );
     ContextHeader.isPanelOpenNotifier.addListener(_onPanelOpenChanged);
+    ContextHeader.isExtendedNotifier.addListener(_onPanelOpenChanged);
     VirtualTopography.onTapCallback = () {
+      ContextHeader.isExtendedNotifier.value = false;
       if (_isFilterBarExpanded) {
         _toggleFilterBar();
       }
@@ -259,6 +353,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     ContextHeader.isPanelOpenNotifier.removeListener(_onPanelOpenChanged);
+    ContextHeader.isExtendedNotifier.removeListener(_onPanelOpenChanged);
     VirtualTopography.onTapCallback = null;
     _filterBarController.dispose();
     _searchTapTimer?.cancel();
@@ -350,217 +445,32 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
     final screenWidth = MediaQuery.of(context).size.width;
     final maxBarWidth = screenWidth * 0.5;
 
-    return Listener(
-      onPointerDown: (PointerDownEvent event) {
-        _lastPointerDownX = event.position.dx;
-      },
-      child: PopScope(
-        canPop: false,
-        onPopInvokedWithResult: (didPop, result) {
-          if (didPop) return;
-          if (_leftBarWidth > 0.0) {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (_searchOverlayOpen) {
+          _closeSearchOverlay();
+        } else if (ContextHeader.isExtendedNotifier.value) {
+          ContextHeader.isExtendedNotifier.value = false;
+        } else if (ContextHeader.isPanelOpenNotifier.value == HeaderMode.timeSpace) {
+          ContextHeader.isPanelOpenNotifier.value = HeaderMode.none;
+        } else if (_leftBarWidth > 0.0) {
+          final now = DateTime.now();
+          if (_lastLeftBarOpenedTime == null || now.difference(_lastLeftBarOpenedTime!).inMilliseconds > 500) {
             setState(() => _leftBarWidth = 0.0);
-          } else if (_sideBarWidth > 0.0) {
-            setState(() => _sideBarWidth = 0.0);
-          } else if (_currentPageIndex > 0) {
-            _navigateToPage(0);
-          } else {
-            Future.delayed(const Duration(milliseconds: 120), () {
-              if (!mounted) return;
-              if (_lastPointerDownX > screenWidth / 2) {
-                _loadMostUsedApps();
-                setState(() => _sideBarWidth = 72.0);
-              } else {
-                setState(() => _leftBarWidth = 72.0);
-              }
-            });
           }
-        },
-        child: Scaffold(
+        } else if (_sideBarWidth > 0.0) {
+          final now = DateTime.now();
+          if (_lastRightBarOpenedTime == null || now.difference(_lastRightBarOpenedTime!).inMilliseconds > 500) {
+            setState(() => _sideBarWidth = 0.0);
+          }
+        } else if (_currentPageIndex > 0) {
+          _navigateToPage(0);
+        }
+      },
+      child: Scaffold(
         key: _scaffoldKey,
-        drawer: Drawer(
-          width: 290,
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          child: ClipRRect(
-            borderRadius: const BorderRadius.horizontal(right: Radius.circular(32)),
-            child: BackdropFilter(
-              filter: ui.ImageFilter.blur(sigmaX: 20.0, sigmaY: 20.0),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: (isDark ? const Color(0xFF0F1411) : const Color(0xFFF0F4F1)).withValues(alpha: 0.85),
-                  borderRadius: const BorderRadius.horizontal(right: Radius.circular(32)),
-                  border: Border(
-                    right: BorderSide(
-                      color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                      width: 1.5,
-                    ),
-                  ),
-                ),
-                child: SafeArea(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.sensors_rounded,
-                              color: theme.colorScheme.primary,
-                              size: 24,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                'Painel de Sensores',
-                                style: TextStyle(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w900,
-                                  color: theme.colorScheme.primary,
-                                  letterSpacing: -0.5,
-                                ),
-                              ),
-                            ),
-                            if (!_loadingHardware)
-                              IconButton(
-                                icon: Icon(Icons.refresh_rounded, size: 18, color: theme.colorScheme.primary.withValues(alpha: 0.6)),
-                                constraints: const BoxConstraints(),
-                                padding: EdgeInsets.zero,
-                                onPressed: () {
-                                  setState(() => _loadingHardware = true);
-                                  _loadHardwareInfo();
-                                },
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Divider(color: theme.colorScheme.primary.withValues(alpha: 0.15)),
-                        
-                        Expanded(
-                          child: _loadingHardware
-                              ? Center(
-                                  child: CircularProgressIndicator(
-                                    color: theme.colorScheme.primary,
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : ListView(
-                                  physics: const BouncingScrollPhysics(),
-                                  padding: const EdgeInsets.symmetric(vertical: 8),
-                                  children: [
-                                    _buildSectionTitle('RÁDIOS & COMUNICAÇÃO', theme),
-                                    _buildWifiTile(theme, isDark),
-                                    _buildRadioTile(
-                                      'Bluetooth', 
-                                      _hardwareInfo['bluetooth'] ?? {}, 
-                                      Icons.bluetooth_rounded, 
-                                      theme, 
-                                      isDark,
-                                      onToggle: (val) async {
-                                        await LauncherService.toggleBluetooth(val);
-                                        Future.delayed(const Duration(milliseconds: 1200), () {
-                                          _loadHardwareInfo();
-                                        });
-                                      },
-                                    ),
-                                    _buildRadioTile(
-                                      'Antena 4G / Celular', 
-                                      {
-                                        'available': _hardwareInfo['cellular']?['available'] == true,
-                                        'enabled': _hardwareInfo['cellular']?['available'] == true,
-                                        'state': _hardwareInfo['cellular']?['type'] ?? 'OFFLINE',
-                                        'subtitle': 'Operadora: ${_hardwareInfo['cellular']?['operator'] ?? "Sem Sinal"}',
-                                      }, 
-                                      Icons.signal_cellular_alt_rounded, 
-                                      theme, 
-                                      isDark,
-                                      onToggle: (val) async {
-                                        await LauncherService.toggleCellular();
-                                      },
-                                    ),
-                                    _buildRadioTile(
-                                      'Receptor de Rádio FM', 
-                                      {
-                                        'available': _hardwareInfo['radio']?['available'] == true,
-                                        'enabled': _fmRadioSimEnabled,
-                                        'state': _fmRadioSimEnabled ? 'ATIVO' : 'DESATIVADO',
-                                        'subtitle': _hardwareInfo['radio']?['state'] ?? 'Receptor de frequência analógica',
-                                      }, 
-                                      Icons.radio_rounded, 
-                                      theme, 
-                                      isDark,
-                                      onToggle: (val) {
-                                        setState(() {
-                                          _fmRadioSimEnabled = val;
-                                        });
-                                      },
-                                    ),
-                                    _buildRadioTile(
-                                      'NFC (Near Field)', 
-                                      _hardwareInfo['nfc'] ?? {}, 
-                                      Icons.nfc_rounded, 
-                                      theme, 
-                                      isDark,
-                                      onToggle: (val) async {
-                                        await LauncherService.openNfcSettings();
-                                      },
-                                    ),
-                                    _buildRadioTile(
-                                      'Infravermelho', 
-                                      _hardwareInfo['infrared'] ?? {}, 
-                                      Icons.settings_remote_rounded, 
-                                      theme, 
-                                      isDark,
-                                      onToggle: (val) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(
-                                            content: Text('Hardware Infravermelho controlado automaticamente pelo sistema.'),
-                                            duration: Duration(seconds: 2),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                    const SizedBox(height: 16),
-                                    _buildSectionTitle('SENSORES DE HARDWARE', theme),
-                                    ..._buildPhysicalSensorsList(theme, isDark),
-                                  ],
-                                ),
-                        ),
-                        
-                        Divider(color: theme.colorScheme.primary.withValues(alpha: 0.15)),
-                        const SizedBox(height: 6),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'PORTAL OS v1.0.3',
-                              style: TextStyle(
-                                fontSize: 9,
-                                fontWeight: FontWeight.w800,
-                                color: theme.colorScheme.primary.withValues(alpha: 0.4),
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                            Text(
-                              'HARDWARE ACTIVE',
-                              style: TextStyle(
-                                fontSize: 8,
-                                fontWeight: FontWeight.bold,
-                                color: theme.colorScheme.secondary.withValues(alpha: 0.6),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-        // endDrawer removed to support custom full-screen/edge swipe drawer
         backgroundColor: isDark ? Colors.black : Colors.white,
         body: SafeArea(
           child: Stack(
@@ -568,7 +478,18 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
               Positioned.fill(
               child: Column(
                 children: [
-                  const SizedBox(height: 148.0),
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 250),
+                    curve: Curves.easeInOut,
+                    height: () {
+                      final isTimeSpaceOpen = ContextHeader.isPanelOpenNotifier.value == HeaderMode.timeSpace;
+                      final isExtendedOpen = ContextHeader.isExtendedNotifier.value;
+                      if (_currentPageIndex == 0) {
+                        return isExtendedOpen ? 280.0 : 148.0;
+                      }
+                      return isExtendedOpen ? 280.0 : (isTimeSpaceOpen ? 132.0 : 84.0);
+                    }(),
+                  ),
 
                   // Warning banner if Portal is not the default launcher
                   if (!_isDefault)
@@ -879,17 +800,33 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         // 1. Navigation Button Bar (Same size/style as explore bar)
-                        Container(
-                          width: double.infinity,
-                          height: 48,
-                          decoration: BoxDecoration(
-                            color: isDark ? const Color(0xFF070D09) : const Color(0xFFF4F7F5),
-                            borderRadius: BorderRadius.circular(24),
-                            border: Border.all(
-                              color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                        GestureDetector(
+                          behavior: HitTestBehavior.translucent,
+                          onHorizontalDragEnd: (details) {
+                            final velocity = details.primaryVelocity ?? details.velocity.pixelsPerSecond.dx;
+                            if (velocity > 120) {
+                              // Swiped RIGHT on the tab bar -> Go to NEXT page
+                              if (_currentPageIndex < 3) {
+                                _navigateToPage(_currentPageIndex + 1);
+                              }
+                            } else if (velocity < -120) {
+                              // Swiped LEFT on the tab bar -> Go to PREVIOUS page
+                              if (_currentPageIndex > 0) {
+                                _navigateToPage(_currentPageIndex - 1);
+                              }
+                            }
+                          },
+                          child: Container(
+                            width: double.infinity,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0xFF070D09) : const Color(0xFFF4F7F5),
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(
+                                color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                              ),
                             ),
-                          ),
-                          child: Builder(
+                            child: Builder(
                             builder: (context) {
                               final Color inactiveColor = isDark
                                   ? Colors.white.withValues(alpha: 0.4)
@@ -1062,6 +999,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                             },
                           ),
                         ),
+                        ),
                         const SizedBox(height: 12),
 
                         // 2. Fixed Bottom Explore Bar (Absolute lowest item)
@@ -1070,8 +1008,16 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                           focusNode: _searchFocusNode,
                           textAlign: TextAlign.right, // RTL alignment for thumb
                           onChanged: (text) {
+                            final q = text.toLowerCase().trim();
                             if (_currentPageIndex == 0) {
-                              VirtualTopography.mapSearchQueryNotifier.value = text;
+                              setState(() {
+                                _overlayFilteredApps = q.isEmpty
+                                    ? []
+                                    : _allApps.where((app) {
+                                        return app.label.toLowerCase().contains(q) ||
+                                            app.packageName.toLowerCase().contains(q);
+                                      }).take(6).toList();
+                              });
                             } else if (_currentPageIndex == 1) {
                               MemoryExplorerView.fileSearchQueryNotifier.value = text;
                             } else if (_currentPageIndex == 2) {
@@ -1088,24 +1034,48 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                             }
                           },
                           decoration: InputDecoration(
-                            prefixIcon: GestureDetector(
-                              onTap: () async {
-                                try {
-                                  await LauncherService.openCameraApp();
-                                } catch (e) {
-                                  debugPrint('Erro ao abrir a câmera: $e');
-                                }
-                              },
-                              onDoubleTap: () async {
-                                try {
-                                  await LauncherService.openGoogleLens();
-                                } catch (e) {
-                                  debugPrint('Erro ao abrir o Google Lens: $e');
-                                }
-                              },
-                              child: Icon(
-                                Icons.remove_red_eye_rounded,
-                                color: theme.colorScheme.primary.withValues(alpha: 0.7),
+                            prefixIcon: Padding(
+                              padding: const EdgeInsets.only(left: 12.0, right: 4.0),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  GestureDetector(
+                                    onTap: () async {
+                                      try {
+                                        await LauncherService.openCameraApp();
+                                      } catch (e) {
+                                        debugPrint('Erro ao abrir a câmera: $e');
+                                      }
+                                    },
+                                    onDoubleTap: () async {
+                                      try {
+                                        await LauncherService.openGoogleLens();
+                                      } catch (e) {
+                                        debugPrint('Erro ao abrir o Google Lens: $e');
+                                      }
+                                    },
+                                    child: Icon(
+                                      Icons.remove_red_eye_rounded,
+                                      size: 20,
+                                      color: theme.colorScheme.primary.withValues(alpha: 0.8),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  GestureDetector(
+                                    onTap: () async {
+                                      try {
+                                        await LauncherService.openVoiceRecorderApp();
+                                      } catch (e) {
+                                        debugPrint('Erro ao abrir o gravador: $e');
+                                      }
+                                    },
+                                    child: Icon(
+                                      Icons.hearing_rounded,
+                                      size: 20,
+                                      color: theme.colorScheme.primary.withValues(alpha: 0.8),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
                             hintText: _currentPageIndex == 0
@@ -1158,113 +1128,369 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
               ),
             ),
 
-            // App search results panel — floats above bottom nav bar when explore bar has results
-            if (_overlayFilteredApps.isNotEmpty)
+            // Unified Home Explore Search Panel — floats above bottom nav bar when user types on Home (Page 0)
+            if (_currentPageIndex == 0 && _searchController.text.trim().isNotEmpty)
               Positioned(
-                bottom: 148, // sits just above the nav bar height
+                top: _exploreOverlayMode == 2 ? 148 : null,
+                bottom: 148, // sits above bottom nav bar
                 left: 16,
                 right: 16,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(20),
                   child: BackdropFilter(
-                    filter: ui.ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                    filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
                     child: Container(
+                      constraints: _exploreOverlayMode == 2 ? null : BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.55),
                       decoration: BoxDecoration(
-                        color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.65),
+                        color: (isDark ? const Color(0xFF0F1511) : Colors.white).withValues(alpha: 0.92),
                         borderRadius: BorderRadius.circular(20),
                         border: Border.all(
-                          color: theme.colorScheme.primary.withValues(alpha: 0.2),
-                          width: 1,
+                          color: theme.colorScheme.primary.withValues(alpha: 0.25),
+                          width: 1.2,
                         ),
                       ),
                       child: Column(
-                        mainAxisSize: MainAxisSize.min,
+                        mainAxisSize: _exploreOverlayMode == 2 ? MainAxisSize.max : MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          // Header row with Back / Title / Close
                           Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
+                            padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
                             child: Row(
                               children: [
-                                Icon(Icons.apps_rounded, size: 14, color: theme.colorScheme.primary),
+                                if (_exploreOverlayMode > 0)
+                                  GestureDetector(
+                                    onTap: () {
+                                      setState(() {
+                                        if (_exploreOverlayMode == 2) {
+                                          _exploreOverlayMode = 1;
+                                        } else {
+                                          _exploreOverlayMode = 0;
+                                        }
+                                      });
+                                    },
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(right: 8.0),
+                                      child: Icon(Icons.arrow_back_rounded, size: 18, color: theme.colorScheme.primary),
+                                    ),
+                                  )
+                                else
+                                  Icon(Icons.explore_rounded, size: 16, color: theme.colorScheme.primary),
                                 const SizedBox(width: 6),
-                                Text(
-                                  'Apps encontrados',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: theme.colorScheme.primary,
-                                    letterSpacing: 0.3,
+                                Expanded(
+                                  child: Text(
+                                    _exploreOverlayMode == 0
+                                        ? 'Explorar "${_searchController.text.trim()}"'
+                                        : (_exploreOverlayMode == 1
+                                            ? 'Escolha de Termos: "${_searchController.text.trim()}"'
+                                            : (_selectedWikiArticle?['title'] ?? 'Artigo Wikipédia')),
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: theme.colorScheme.primary,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
-                                const Spacer(),
                                 GestureDetector(
-                                  onTap: _closeSearchOverlay,
+                                  onTap: () {
+                                    _searchController.clear();
+                                    _searchFocusNode.unfocus();
+                                    setState(() {
+                                      _overlayFilteredApps = [];
+                                      _exploreOverlayMode = 0;
+                                      _wikiTermsList = [];
+                                      _selectedWikiArticle = null;
+                                    });
+                                  },
                                   child: Icon(
                                     Icons.close_rounded,
-                                    size: 16,
+                                    size: 18,
                                     color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.4),
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                          SizedBox(
-                            height: 80,
-                            child: ListView.builder(
-                              scrollDirection: Axis.horizontal,
-                              padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-                              itemCount: _overlayFilteredApps.length,
-                              itemBuilder: (context, index) {
-                                final app = _overlayFilteredApps[index];
-                                return GestureDetector(
-                                  onTap: () {
-                                    AppsService.launchApp(app.packageName, app.className);
-                                    _closeSearchOverlay();
-                                  },
-                                  child: Container(
-                                    width: 60,
-                                    margin: const EdgeInsets.only(right: 8),
-                                    child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        FutureBuilder<Uint8List?>(
-                                          future: AppsService.getAppIcon(app.packageName),
-                                          builder: (context, snap) {
-                                            if (snap.hasData && snap.data != null) {
-                                              return ClipRRect(
-                                                borderRadius: BorderRadius.circular(12),
-                                                child: Image.memory(snap.data!, width: 40, height: 40, fit: BoxFit.cover),
-                                              );
-                                            }
-                                            return Container(
-                                              width: 40, height: 40,
-                                              decoration: BoxDecoration(
-                                                color: theme.colorScheme.primary.withValues(alpha: 0.15),
-                                                borderRadius: BorderRadius.circular(12),
-                                              ),
-                                              alignment: Alignment.center,
-                                              child: Text(
-                                                app.label.isNotEmpty ? app.label[0].toUpperCase() : '?',
-                                                style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, fontSize: 16),
-                                              ),
-                                            );
-                                          },
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          app.label,
-                                          style: TextStyle(fontSize: 9, color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.8)),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          textAlign: TextAlign.center,
-                                        ),
-                                      ],
-                                    ),
+                          Divider(height: 1, color: theme.colorScheme.primary.withValues(alpha: 0.15)),
+
+                          // ── MODE 0: MAIN EXPLORE OPTIONS MENU ──
+                          if (_exploreOverlayMode == 0) ...[
+                            if (_overlayFilteredApps.isNotEmpty) ...[
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                                child: Text(
+                                  '1. APLICATIVOS INSTALADOS',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w800,
+                                    color: theme.colorScheme.primary.withValues(alpha: 0.7),
+                                    letterSpacing: 0.5,
                                   ),
-                                );
+                                ),
+                              ),
+                              SizedBox(
+                                height: 68,
+                                child: ListView.builder(
+                                  scrollDirection: Axis.horizontal,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                                  itemCount: _overlayFilteredApps.length,
+                                  itemBuilder: (context, index) {
+                                    final app = _overlayFilteredApps[index];
+                                    return GestureDetector(
+                                      onTap: () {
+                                        AppsService.launchApp(app.packageName, app.className);
+                                        _searchController.clear();
+                                        _searchFocusNode.unfocus();
+                                        setState(() {
+                                          _overlayFilteredApps = [];
+                                        });
+                                      },
+                                      child: Container(
+                                        width: 54,
+                                        margin: const EdgeInsets.only(right: 8),
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            FutureBuilder<Uint8List?>(
+                                              future: AppsService.getAppIcon(app.packageName),
+                                              builder: (context, snap) {
+                                                if (snap.hasData && snap.data != null) {
+                                                  return ClipRRect(
+                                                    borderRadius: BorderRadius.circular(10),
+                                                    child: Image.memory(snap.data!, width: 34, height: 34, fit: BoxFit.cover),
+                                                  );
+                                                }
+                                                return Container(
+                                                  width: 34, height: 34,
+                                                  decoration: BoxDecoration(
+                                                    color: theme.colorScheme.primary.withValues(alpha: 0.15),
+                                                    borderRadius: BorderRadius.circular(10),
+                                                  ),
+                                                  alignment: Alignment.center,
+                                                  child: Text(
+                                                    app.label.isNotEmpty ? app.label[0].toUpperCase() : '?',
+                                                    style: TextStyle(fontWeight: FontWeight.bold, color: theme.colorScheme.primary, fontSize: 14),
+                                                  ),
+                                                );
+                                              },
+                                            ),
+                                            const SizedBox(height: 3),
+                                            Text(
+                                              app.label,
+                                              style: TextStyle(fontSize: 8.5, color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.8)),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              textAlign: TextAlign.center,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                              Divider(height: 1, color: theme.colorScheme.primary.withValues(alpha: 0.1)),
+                            ],
+
+                            // 2. Wikipedia Search Action
+                            _buildExploreActionTile(
+                              icon: Icons.menu_book_rounded,
+                              title: '2. Artigo na Wikipédia',
+                              subtitle: 'Escolher termos relacionados e ler artigo completo',
+                              theme: theme,
+                              isDark: isDark,
+                              onTap: () {
+                                final query = _searchController.text.trim();
+                                _searchFocusNode.unfocus();
+                                _fetchWikiCandidateTerms(query);
                               },
                             ),
-                          ),
+
+                            // 3. Google Web Search Action
+                            _buildExploreActionTile(
+                              icon: Icons.search_rounded,
+                              title: '3. Pesquisar no Google',
+                              subtitle: 'Abrir resultados de busca no navegador',
+                              theme: theme,
+                              isDark: isDark,
+                              onTap: () {
+                                final query = _searchController.text.trim();
+                                _searchFocusNode.unfocus();
+                                LauncherService.openUrl("https://www.google.com/search?q=${Uri.encodeComponent(query)}");
+                              },
+                            ),
+
+                            // 4. Google Maps Search Action
+                            _buildExploreActionTile(
+                              icon: Icons.map_rounded,
+                              title: '4. Google Maps',
+                              subtitle: 'Explorar local ou mapa no navegador',
+                              theme: theme,
+                              isDark: isDark,
+                              onTap: () {
+                                final query = _searchController.text.trim();
+                                _searchFocusNode.unfocus();
+                                LauncherService.openUrl("https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(query)}");
+                              },
+                            ),
+                            const SizedBox(height: 6),
+                          ]
+                          // ── MODE 1: CANDIDATE WIKIPEDIA TERMS LIST ──
+                          else if (_exploreOverlayMode == 1) ...[
+                            if (_loadingWikiTerms)
+                              const Padding(
+                                padding: EdgeInsets.all(28.0),
+                                child: Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              )
+                            else if (_wikiTermsList.isEmpty)
+                              Padding(
+                                padding: const EdgeInsets.all(24.0),
+                                child: Center(
+                                  child: Text(
+                                    'Nenhum artigo encontrado na Wikipédia.',
+                                    style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurface.withValues(alpha: 0.5)),
+                                  ),
+                                ),
+                              )
+                            else
+                              ConstrainedBox(
+                                constraints: const BoxConstraints(maxHeight: 280),
+                                child: ListView.separated(
+                                  shrinkWrap: true,
+                                  physics: const BouncingScrollPhysics(),
+                                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                                  itemCount: _wikiTermsList.length,
+                                  separatorBuilder: (context, index) => Divider(height: 1, color: theme.colorScheme.primary.withValues(alpha: 0.08)),
+                                  itemBuilder: (context, index) {
+                                    final term = _wikiTermsList[index];
+                                    final title = term['title'] ?? '';
+                                    final snippet = term['snippet'] ?? '';
+                                    final ts = term['timestamp'] ?? '';
+
+                                    return InkWell(
+                                      onTap: () => _fetchWikiArticleFull(title),
+                                      borderRadius: BorderRadius.circular(10),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                Icon(Icons.article_rounded, size: 14, color: theme.colorScheme.primary),
+                                                const SizedBox(width: 6),
+                                                Expanded(
+                                                  child: Text(
+                                                    title,
+                                                    style: TextStyle(
+                                                      fontSize: 12,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: isDark ? Colors.white : Colors.black,
+                                                    ),
+                                                  ),
+                                                ),
+                                                if (ts.isNotEmpty)
+                                                  Text(
+                                                    ts,
+                                                    style: TextStyle(
+                                                      fontSize: 8.5,
+                                                      color: theme.colorScheme.primary.withValues(alpha: 0.6),
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                            if (snippet.isNotEmpty) ...[
+                                              const SizedBox(height: 3),
+                                              Text(
+                                                snippet,
+                                                style: TextStyle(
+                                                  fontSize: 10,
+                                                  color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.6),
+                                                  height: 1.3,
+                                                ),
+                                                maxLines: 2,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                          ]
+                          // ── MODE 2: FULL ARTICLE DISPLAY ──
+                          else if (_exploreOverlayMode == 2) ...[
+                            if (_loadingWikiArticle)
+                              const Padding(
+                                padding: EdgeInsets.all(36.0),
+                                child: Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              )
+                            else if (_selectedWikiArticle != null) ...[
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      'ARTIGO WIKIPÉDIA',
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.w800,
+                                        color: theme.colorScheme.primary,
+                                        letterSpacing: 0.8,
+                                      ),
+                                    ),
+                                    Text(
+                                      '📅 Atualização: ${_selectedWikiArticle!['updated']}',
+                                      style: TextStyle(
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.bold,
+                                        color: theme.colorScheme.primary.withValues(alpha: 0.75),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Divider(height: 1, color: theme.colorScheme.primary.withValues(alpha: 0.1)),
+                              Expanded(
+                                child: SingleChildScrollView(
+                                  physics: const BouncingScrollPhysics(),
+                                  padding: const EdgeInsets.all(16.0),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        _selectedWikiArticle!['title']!,
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w900,
+                                          color: theme.colorScheme.primary,
+                                          letterSpacing: -0.3,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Text(
+                                        _selectedWikiArticle!['extract']!,
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          height: 1.5,
+                                          color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.85),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
                         ],
                       ),
                     ),
@@ -1280,46 +1506,50 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                width: _leftBarWidth > 0 ? screenWidth : 60.0,
                child: GestureDetector(
                  behavior: HitTestBehavior.translucent,
-                  onHorizontalDragUpdate: (details) {
-                    setState(() {
-                      _leftBarWidth = (_leftBarWidth + details.delta.dx).clamp(0.0, maxBarWidth);
-                    });
-                  },
-                  onHorizontalDragEnd: (details) {
-                    final velocity = details.primaryVelocity ?? details.velocity.pixelsPerSecond.dx;
-                    if (velocity > 200) {
-                      // Swipe right = open
-                      if (_leftBarWidth < 120) {
-                        setState(() => _leftBarWidth = 72.0);
-                      } else {
-                        setState(() => _leftBarWidth = maxBarWidth);
-                      }
-                    } else if (velocity < -200) {
-                      // Swipe left = close
-                      if (_leftBarWidth > (72.0 + maxBarWidth) / 2) {
-                        setState(() => _leftBarWidth = 72.0);
-                      } else {
-                        setState(() => _leftBarWidth = 0.0);
-                      }
-                    } else {
-                      // Snap based on width
-                      if (_leftBarWidth < 45) {
-                        setState(() => _leftBarWidth = 0.0);
-                      } else if (_leftBarWidth < (72.0 + maxBarWidth) / 2) {
-                        setState(() => _leftBarWidth = 72.0);
-                      } else {
-                        setState(() => _leftBarWidth = maxBarWidth);
-                      }
-                    }
-                  },
+                 onHorizontalDragUpdate: (details) {
+                   setState(() {
+                     _leftBarWidth = (_leftBarWidth + details.delta.dx).clamp(0.0, maxBarWidth);
+                     _lastLeftBarOpenedTime = DateTime.now();
+                   });
+                 },
+                 onHorizontalDragEnd: (details) {
+                   final velocity = details.primaryVelocity ?? details.velocity.pixelsPerSecond.dx;
+                   if (velocity > 200) {
+                     setState(() {
+                       _leftBarWidth = maxBarWidth;
+                       _lastLeftBarOpenedTime = DateTime.now();
+                     });
+                   } else if (velocity < -200) {
+                     setState(() {
+                       _leftBarWidth = 0.0;
+                       _lastLeftBarOpenedTime = null;
+                     });
+                   } else {
+                     setState(() {
+                       if (_leftBarWidth < 36.0) {
+                         _leftBarWidth = 0.0;
+                         _lastLeftBarOpenedTime = null;
+                       } else if (_leftBarWidth < maxBarWidth * 0.5) {
+                         _leftBarWidth = 72.0;
+                         _lastLeftBarOpenedTime = DateTime.now();
+                       } else {
+                         _leftBarWidth = maxBarWidth;
+                         _lastLeftBarOpenedTime = DateTime.now();
+                       }
+                     });
+                   }
+                 },
                  child: Stack(
                    children: [
                      if (_leftBarWidth > 0)
                        Positioned.fill(
                          child: GestureDetector(
-                           onTap: () => setState(() => _leftBarWidth = 0.0),
+                           onTap: () => setState(() {
+                             _leftBarWidth = 0.0;
+                             _lastLeftBarOpenedTime = null;
+                           }),
                            child: Container(
-                              color: Colors.black.withValues(alpha: 0.15 * (_leftBarWidth / maxBarWidth)),
+                             color: Colors.black.withValues(alpha: 0.15 * (_leftBarWidth / maxBarWidth)),
                            ),
                          ),
                        ),
@@ -1329,7 +1559,8 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                        left: 0,
                        width: _leftBarWidth > 0 ? _leftBarWidth : 0.0,
                        child: GestureDetector(
-                         onTap: () {},
+                         onTap: () {}, // Consume taps inside the panel
+
                          child: ClipRRect(
                            borderRadius: const BorderRadius.horizontal(right: Radius.circular(28)),
                            child: BackdropFilter(
@@ -1360,8 +1591,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                ),
              ),
 
-             // ── Custom Swipe Sidebar ─────────────────────────────────────────
-             // Gesture detection area on the right edge
+             // ── Custom Right Swipe Sidebar (Apps) ─────────────────
              Positioned(
                top: 0,
                bottom: 0,
@@ -1375,55 +1605,61 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                    }
                    setState(() {
                      _sideBarWidth = (_sideBarWidth - details.delta.dx).clamp(0.0, maxBarWidth);
+                     _lastRightBarOpenedTime = DateTime.now();
                    });
                  },
                  onHorizontalDragEnd: (details) {
                    final velocity = details.primaryVelocity ?? details.velocity.pixelsPerSecond.dx;
                    if (velocity < -200) {
-                     // Fast swipe left = open further
-                     if (_sideBarWidth < 120) {
-                       setState(() => _sideBarWidth = 72.0);
-                     } else {
-                       setState(() => _sideBarWidth = maxBarWidth);
-                     }
+                     _loadMostUsedApps();
+                     setState(() {
+                       _sideBarWidth = maxBarWidth;
+                       _lastRightBarOpenedTime = DateTime.now();
+                     });
                    } else if (velocity > 200) {
-                     // Fast swipe right = close down
-                     if (_sideBarWidth > (72.0 + maxBarWidth) / 2) {
-                       setState(() => _sideBarWidth = 72.0);
-                     } else {
-                       setState(() => _sideBarWidth = 0.0);
-                     }
+                     setState(() {
+                       _sideBarWidth = 0.0;
+                       _lastRightBarOpenedTime = null;
+                     });
                    } else {
-                     // Normal drag snap based on width
-                     if (_sideBarWidth < 45) {
-                       setState(() => _sideBarWidth = 0.0);
-                     } else if (_sideBarWidth < (72.0 + maxBarWidth) / 2) {
-                       setState(() => _sideBarWidth = 72.0);
-                     } else {
-                       setState(() => _sideBarWidth = maxBarWidth);
-                     }
+                     setState(() {
+                       if (_sideBarWidth < 36.0) {
+                         _sideBarWidth = 0.0;
+                         _lastRightBarOpenedTime = null;
+                       } else if (_sideBarWidth < maxBarWidth * 0.5) {
+                         _loadMostUsedApps();
+                         _sideBarWidth = 72.0;
+                         _lastRightBarOpenedTime = DateTime.now();
+                       } else {
+                         _loadMostUsedApps();
+                         _sideBarWidth = maxBarWidth;
+                         _lastRightBarOpenedTime = DateTime.now();
+                       }
+                     });
                    }
                  },
                  child: Stack(
                    children: [
-                     // A transparent/translucent background overlay when open
                      if (_sideBarWidth > 0)
                        Positioned.fill(
                          child: GestureDetector(
-                           onTap: () => setState(() => _sideBarWidth = 0.0),
+                           onTap: () => setState(() {
+                             _sideBarWidth = 0.0;
+                             _lastRightBarOpenedTime = null;
+                           }),
                            child: Container(
-                              color: Colors.black.withValues(alpha: 0.15 * (_sideBarWidth / maxBarWidth)),
+                             color: Colors.black.withValues(alpha: 0.15 * (_sideBarWidth / maxBarWidth)),
                            ),
                          ),
                        ),
-                     // The actual sidebar content panel
                      Positioned(
                        top: 0,
                        bottom: 0,
                        right: 0,
                        width: _sideBarWidth > 0 ? _sideBarWidth : 0.0,
                        child: GestureDetector(
-                         onTap: () {}, // Prevent taps inside the sidebar content from closing it
+                         onTap: () {}, // Consume taps inside the panel
+
                          child: ClipRRect(
                            borderRadius: const BorderRadius.horizontal(left: Radius.circular(28)),
                            child: BackdropFilter(
@@ -1452,492 +1688,435 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                    ],
                  ),
                ),
-             ),
+             )
           ],
         ),
       ),
     ),
-      ),
   );
-}
+  }
 
-  Widget _buildMiniSideBarContent(ThemeData theme, bool isDark) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 24),
-      child: Column(
-        children: [
-          // Drag handle indicator
-          Container(
-            width: 4,
-            height: 40,
-            margin: const EdgeInsets.only(bottom: 24),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primary.withValues(alpha: 0.4),
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          // Mini App Icons
-          Expanded(
-            child: _mostUsedApps.isEmpty
-                ? Center(
-                    child: Icon(
-                      Icons.apps_rounded,
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.2),
-                      size: 24,
-                    ),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    itemCount: _mostUsedApps.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 16),
-                    physics: const BouncingScrollPhysics(),
-                    itemBuilder: (context, index) {
-                      final app = _mostUsedApps[index];
-                      return Center(
-                        child: Tooltip(
-                          message: app.label,
-                          child: InkWell(
-                            onTap: () async {
-                              setState(() => _sideBarWidth = 0.0);
-                              await AppsService.launchApp(app.packageName, app.className);
-                              _loadMostUsedApps();
-                            },
-                            borderRadius: BorderRadius.circular(14),
-                            child: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: theme.colorScheme.primary.withValues(alpha: 0.1),
-                                  width: 1,
-                                ),
-                              ),
-                              child: FutureBuilder<Uint8List?>(
-                                future: AppsService.getAppIcon(app.packageName),
-                                builder: (context, snapshot) {
-                                  if (snapshot.hasData && snapshot.data != null) {
-                                    return ClipRRect(
-                                      borderRadius: BorderRadius.circular(8),
-                                      child: Image.memory(
-                                        snapshot.data!,
-                                        width: 28,
-                                        height: 28,
-                                        fit: BoxFit.cover,
-                                      ),
-                                    );
-                                  }
-                                  return Icon(
-                                    Icons.android_rounded,
-                                    size: 28,
-                                    color: theme.colorScheme.primary,
-                                  );
-                                },
-                              ),
+
+
+
+
+  void _showOfflineDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        final theme = Theme.of(context);
+        final isDark = theme.brightness == Brightness.dark;
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(24),
+            child: BackdropFilter(
+              filter: ui.ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+              child: Container(
+                padding: const EdgeInsets.all(22),
+                decoration: BoxDecoration(
+                  color: (isDark ? const Color(0xFF0F1511) : Colors.white).withValues(alpha: 0.92),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: const Color(0xFFFF3B30).withValues(alpha: 0.5),
+                    width: 1.5,
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFF3B30).withValues(alpha: 0.15),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.airplanemode_active_rounded,
+                            color: Color(0xFFFF3B30),
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Text(
+                            'MODO OFFLINE ATIVO',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w900,
+                              color: Color(0xFFFF3B30),
+                              letterSpacing: 0.5,
                             ),
                           ),
                         ),
-                      );
-                    },
-                  ),
-          ),
-          // Floating settings shortcut at the bottom
-          IconButton(
-            icon: Icon(
-              Icons.settings_rounded,
-              color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.4),
-              size: 20,
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      'O Portal Launcher está operando em modo de isolamento de sinal local.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : Colors.black,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      '• Wi-Fi, Bluetooth, NFC, Rádio FM e Lanterna foram desligados.\n'
+                      '• Transmissões de dados móveis, clima e telemetria remota estão bloqueadas.\n'
+                      '• O smartphone opera em isolamento de rádio total.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        height: 1.4,
+                        color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.7),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF3B30),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text(
+                          'ENTENDIDO (MANTER ISOLAMENTO)',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            onPressed: () {
-              AppsService.launchApp('com.android.settings', '');
-            },
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildMiniLeftBarContent(ThemeData theme, bool isDark) {
-    final wifiEnabled = _hardwareInfo['wifi']?['enabled'] == true;
-    final bluetoothEnabled = _hardwareInfo['bluetooth']?['enabled'] == true;
-    final cellularEnabled = _hardwareInfo['cellular']?['available'] == true;
-    final nfcEnabled = _hardwareInfo['nfc']?['enabled'] == true;
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 24),
-      child: Column(
-        children: [
-          // Drag handle indicator
-          Container(
-            width: 4,
-            height: 40,
-            margin: const EdgeInsets.only(bottom: 24),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primary.withValues(alpha: 0.4),
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          
-          // Wi-Fi Button
-          _buildMiniSensorToggle(
-            icon: wifiEnabled ? Icons.wifi_rounded : Icons.wifi_off_rounded,
-            enabled: wifiEnabled,
-            tooltip: 'Wi-Fi: ${wifiEnabled ? "Ativo" : "Inativo"}',
-            theme: theme,
-            isDark: isDark,
-            onTap: () async {
-              await LauncherService.toggleWifi(!wifiEnabled);
-              Future.delayed(const Duration(milliseconds: 1200), () {
-                _loadHardwareInfo();
-              });
-            },
-          ),
-          const SizedBox(height: 16),
-
-          // Bluetooth Button
-          _buildMiniSensorToggle(
-            icon: bluetoothEnabled ? Icons.bluetooth_rounded : Icons.bluetooth_disabled_rounded,
-            enabled: bluetoothEnabled,
-            tooltip: 'Bluetooth: ${bluetoothEnabled ? "Ativo" : "Inativo"}',
-            theme: theme,
-            isDark: isDark,
-            onTap: () async {
-              await LauncherService.toggleBluetooth(!bluetoothEnabled);
-              Future.delayed(const Duration(milliseconds: 1200), () {
-                _loadHardwareInfo();
-              });
-            },
-          ),
-          const SizedBox(height: 16),
-
-          // Cellular Button
-          _buildMiniSensorToggle(
-            icon: Icons.signal_cellular_alt_rounded,
-            enabled: cellularEnabled,
-            tooltip: 'Celular',
-            theme: theme,
-            isDark: isDark,
-            onTap: () async {
-              await LauncherService.toggleCellular();
-            },
-          ),
-          const SizedBox(height: 16),
-
-          // NFC Button
-          _buildMiniSensorToggle(
-            icon: Icons.nfc_rounded,
-            enabled: nfcEnabled,
-            tooltip: 'NFC',
-            theme: theme,
-            isDark: isDark,
-            onTap: () async {
-              await LauncherService.openNfcSettings();
-            },
-          ),
-          const SizedBox(height: 16),
-
-          // Flashlight Button
-          _buildMiniSensorToggle(
-            icon: _flashlightEnabled ? Icons.flashlight_on_rounded : Icons.flashlight_off_rounded,
-            enabled: _flashlightEnabled,
-            tooltip: 'Lanterna: ${_flashlightEnabled ? "Ativa" : "Inativa"}',
-            theme: theme,
-            isDark: isDark,
-            onTap: () async {
-              final newMode = !_flashlightEnabled;
-              await LauncherService.toggleFlashlight(newMode);
-              setState(() {
-                _flashlightEnabled = newMode;
-              });
-            },
-          ),
-          const SizedBox(height: 16),
-
-          // Auto-Rotation Lock Button
-          _buildMiniSensorToggle(
-            icon: _autoRotationEnabled ? Icons.screen_rotation_rounded : Icons.screen_lock_rotation_rounded,
-            enabled: _autoRotationEnabled,
-            tooltip: 'Rotação da Tela: ${_autoRotationEnabled ? "Auto" : "Bloqueada"}',
-            theme: theme,
-            isDark: isDark,
-            onTap: () async {
-              final newMode = !_autoRotationEnabled;
-              final success = await LauncherService.setAutoRotationEnabled(newMode);
-              if (success) {
-                setState(() {
-                  _autoRotationEnabled = newMode;
-                });
-              } else {
-                Future.delayed(const Duration(seconds: 4), () async {
-                  final rot = await LauncherService.isAutoRotationEnabled();
-                  setState(() {
-                    _autoRotationEnabled = rot;
-                  });
-                });
-              }
-            },
-          ),
-          const SizedBox(height: 16),
-
-          const Spacer(),
-
-          // Sensors Button to expand full list
-          _buildMiniSensorToggle(
-            icon: Icons.sensors_rounded,
-            enabled: true,
-            tooltip: 'Ver todos os sensores',
-            theme: theme,
-            isDark: isDark,
-            onTap: () {
-              setState(() {
-                _leftBarWidth = MediaQuery.of(context).size.width * 0.5;
-              });
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMiniSensorToggle({
+  Widget _buildToolButtonTile({
+    required String title,
+    required String subtitle,
     required IconData icon,
-    required bool enabled,
-    required String tooltip,
+    required bool active,
     required ThemeData theme,
     required bool isDark,
     required VoidCallback onTap,
+    Color? activeColor,
+    String? badgeText,
   }) {
-    return Tooltip(
-      message: tooltip,
+    final Color effectiveColor = activeColor ?? theme.colorScheme.primary;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         child: Container(
-          width: 44,
-          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           decoration: BoxDecoration(
-            color: enabled 
-                ? theme.colorScheme.primary.withValues(alpha: 0.12)
+            color: active
+                ? effectiveColor.withValues(alpha: 0.14)
                 : (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: enabled
-                  ? theme.colorScheme.primary.withValues(alpha: 0.3)
-                  : theme.colorScheme.primary.withValues(alpha: 0.1),
-              width: 1,
+              color: active
+                  ? effectiveColor.withValues(alpha: 0.4)
+                  : theme.colorScheme.primary.withValues(alpha: 0.08),
+              width: 1.2,
             ),
           ),
-          child: Center(
-            child: Icon(
-              icon,
-              size: 20,
-              color: enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface.withValues(alpha: 0.4),
-            ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: active
+                      ? effectiveColor.withValues(alpha: 0.2)
+                      : (isDark ? Colors.white : Colors.black).withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  icon,
+                  size: 20,
+                  color: active ? effectiveColor : theme.colorScheme.onSurface.withValues(alpha: 0.45),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: active ? (isDark ? Colors.white : Colors.black) : theme.colorScheme.onSurface,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
     );
   }
 
+  Widget _buildCompassCard(ThemeData theme, bool isDark) {
+    return _buildToolButtonTile(
+      title: 'Bússola Magnética',
+      subtitle: 'Sensor Magnetômetro Interno',
+      icon: Icons.explore_rounded,
+      active: true,
+      theme: theme,
+      isDark: isDark,
+      onTap: () {
+        setState(() {
+          _leftBarWidth = MediaQuery.of(context).size.width * 0.5;
+        });
+      },
+    );
+  }
+
   Widget _buildFullLeftBarContent(ThemeData theme, bool isDark) {
+    final wifi = _hardwareInfo['wifi'] as Map? ?? {};
+    final bool wifiEnabled = wifi['enabled'] == true;
+    final String wifiSsid = wifi['ssid'] ?? '';
+    final int wifiSpeed = wifi['speed'] ?? 0;
+
+    final bluetooth = _hardwareInfo['bluetooth'] as Map? ?? {};
+    final bool btEnabled = bluetooth['enabled'] == true;
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(
-                Icons.sensors_rounded,
-                color: theme.colorScheme.primary,
-                size: 24,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Painel de Sensores',
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w900,
-                    color: theme.colorScheme.primary,
-                    letterSpacing: -0.5,
-                  ),
+          // ── Master Offline Mode Button Card ──────────────────────────────
+          _buildToolButtonTile(
+            title: _isOfflineMode ? 'MODO OFFLINE ATIVO' : 'MODO ONLINE',
+            subtitle: _isOfflineMode
+                ? 'Isolamento de rádio ativo no launcher'
+                : 'Todas as transmissões e buscas ativas',
+            icon: _isOfflineMode ? Icons.airplanemode_active_rounded : Icons.cell_tower_rounded,
+            active: _isOfflineMode,
+            activeColor: const Color(0xFFFF3B30),
+            badgeText: _isOfflineMode ? 'OFFLINE' : 'ONLINE',
+            theme: theme,
+            isDark: isDark,
+            onTap: () async {
+              final newOffline = !_isOfflineMode;
+              setState(() {
+                _isOfflineMode = newOffline;
+                if (newOffline) {
+                  _fmRadioSimEnabled = false;
+                }
+              });
+              if (newOffline) {
+                await LauncherService.toggleWifi(false);
+                await LauncherService.toggleBluetooth(false);
+                await LauncherService.toggleFlashlight(false);
+                _showOfflineDialog();
+              }
+            },
+          ),
+          Divider(color: theme.colorScheme.primary.withValues(alpha: 0.15)),
+
+          Expanded(
+            child: ListView(
+              physics: const BouncingScrollPhysics(),
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              children: [
+                _buildSectionTitle('FERRAMENTAS DE HARDWARE', theme),
+                
+                // 1. Calculadora
+                _buildToolButtonTile(
+                  title: 'Calculadora',
+                  subtitle: 'Calculadora rápida do sistema',
+                  icon: Icons.calculate_rounded,
+                  active: true,
+                  badgeText: 'ABRIR',
+                  theme: theme,
+                  isDark: isDark,
+                  onTap: () => LauncherService.openCalculatorApp(),
                 ),
-              ),
-              if (!_loadingHardware)
-                IconButton(
-                  icon: Icon(Icons.refresh_rounded, size: 18, color: theme.colorScheme.primary.withValues(alpha: 0.6)),
-                  constraints: const BoxConstraints(),
-                  padding: EdgeInsets.zero,
-                  onPressed: () {
-                    setState(() => _loadingHardware = true);
-                    _loadHardwareInfo();
+
+                // 2. Câmera
+                _buildToolButtonTile(
+                  title: 'Câmera Digital',
+                  subtitle: 'Captura de fotos e vídeos',
+                  icon: Icons.camera_alt_rounded,
+                  active: true,
+                  badgeText: 'ABRIR',
+                  theme: theme,
+                  isDark: isDark,
+                  onTap: () => LauncherService.openCameraApp(),
+                ),
+
+                // 3. Lanterna LED
+                _buildToolButtonTile(
+                  title: 'Lanterna LED',
+                  subtitle: _flashlightEnabled ? 'LED traseiro ativado' : 'Toque para ligar a lanterna',
+                  icon: _flashlightEnabled ? Icons.flashlight_on_rounded : Icons.flashlight_off_rounded,
+                  active: _flashlightEnabled,
+                  badgeText: _flashlightEnabled ? 'ON' : 'OFF',
+                  theme: theme,
+                  isDark: isDark,
+                  onTap: () async {
+                    final newSt = !_flashlightEnabled;
+                    await LauncherService.toggleFlashlight(newSt);
+                    setState(() {
+                      _flashlightEnabled = newSt;
+                    });
                   },
                 ),
-            ],
+
+                // 4. Bússola Magnética
+                _buildCompassCard(theme, isDark),
+
+                // 5. Rádio FM Analógico
+                _buildToolButtonTile(
+                  title: 'Rádio FM Analógico',
+                  subtitle: _fmRadioSimEnabled
+                      ? 'Frequência 98.9 MHz • Receptor ativo'
+                      : 'Toque para ligar o receptor FM',
+                  icon: Icons.radio_rounded,
+                  active: _fmRadioSimEnabled,
+                  badgeText: _fmRadioSimEnabled ? 'ATIVO' : 'OFF',
+                  theme: theme,
+                  isDark: isDark,
+                  onTap: () {
+                    setState(() {
+                      _fmRadioSimEnabled = !_fmRadioSimEnabled;
+                    });
+                  },
+                ),
+
+                // 6. Auto-Rotação
+                _buildToolButtonTile(
+                  title: 'Giro da Tela',
+                  subtitle: _autoRotationEnabled ? 'Giro livre ativado' : 'Orientação bloqueada',
+                  icon: _autoRotationEnabled ? Icons.screen_rotation_rounded : Icons.screen_lock_rotation_rounded,
+                  active: _autoRotationEnabled,
+                  badgeText: _autoRotationEnabled ? 'AUTO' : 'TRAVADO',
+                  theme: theme,
+                  isDark: isDark,
+                  onTap: () async {
+                    final newMode = !_autoRotationEnabled;
+                    final success = await LauncherService.setAutoRotationEnabled(newMode);
+                    if (success) {
+                      setState(() {
+                        _autoRotationEnabled = newMode;
+                      });
+                    }
+                  },
+                ),
+
+                const SizedBox(height: 12),
+                _buildSectionTitle('CONECTIVIDADE & TRANSMISSÃO', theme),
+
+                // 7. Wi-Fi
+                _buildToolButtonTile(
+                  title: 'Wi-Fi',
+                  subtitle: wifiEnabled
+                      ? (wifiSsid.isNotEmpty && wifiSsid != 'Desconectado'
+                          ? '$wifiSsid ${wifiSpeed > 0 ? "• $wifiSpeed Mbps" : ""}'
+                          : 'Conectado')
+                      : 'Toque para ativar Wi-Fi',
+                  icon: wifiEnabled ? Icons.wifi_rounded : Icons.wifi_off_rounded,
+                  active: wifiEnabled,
+                  badgeText: wifiEnabled ? 'CONECTADO' : 'DESLIGADO',
+                  theme: theme,
+                  isDark: isDark,
+                  onTap: () async {
+                    await LauncherService.toggleWifi(!wifiEnabled);
+                    Future.delayed(const Duration(milliseconds: 1200), () {
+                      _loadHardwareInfo();
+                    });
+                  },
+                ),
+
+                // 8. Bluetooth
+                _buildToolButtonTile(
+                  title: 'Bluetooth',
+                  subtitle: btEnabled ? 'Dispositivo visível e pronto' : 'Toque para ativar Bluetooth',
+                  icon: btEnabled ? Icons.bluetooth_rounded : Icons.bluetooth_disabled_rounded,
+                  active: btEnabled,
+                  badgeText: btEnabled ? 'ATIVO' : 'DESLIGADO',
+                  theme: theme,
+                  isDark: isDark,
+                  onTap: () async {
+                    await LauncherService.toggleBluetooth(!btEnabled);
+                    Future.delayed(const Duration(milliseconds: 1200), () {
+                      _loadHardwareInfo();
+                    });
+                  },
+                ),
+
+                // 9. Dados Móveis
+                _buildToolButtonTile(
+                  title: 'Rede Celular (4G/5G)',
+                  subtitle: 'Operadora & dados móveis',
+                  icon: Icons.signal_cellular_alt_rounded,
+                  active: true,
+                  badgeText: 'PAINEL',
+                  theme: theme,
+                  isDark: isDark,
+                  onTap: () => LauncherService.toggleCellular(),
+                ),
+
+                // 10. NFC
+                _buildToolButtonTile(
+                  title: 'NFC & Pagamentos',
+                  subtitle: 'Comunicação por aproximação',
+                  icon: Icons.nfc_rounded,
+                  active: true,
+                  badgeText: 'PAINEL',
+                  theme: theme,
+                  isDark: isDark,
+                  onTap: () => LauncherService.openNfcSettings(),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 10),
-          Divider(color: theme.colorScheme.primary.withValues(alpha: 0.15)),
-          
-          Expanded(
-            child: _loadingHardware
-                ? Center(
-                    child: CircularProgressIndicator(
-                      color: theme.colorScheme.primary,
-                      strokeWidth: 2,
-                    ),
-                  )
-                : ListView(
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    children: [
-                      _buildSectionTitle('RÁDIOS & COMUNICAÇÃO', theme),
-                      _buildWifiTile(theme, isDark),
-                      _buildRadioTile(
-                        'Bluetooth', 
-                        _hardwareInfo['bluetooth'] ?? {}, 
-                        Icons.bluetooth_rounded, 
-                        theme, 
-                        isDark,
-                        onToggle: (val) async {
-                          await LauncherService.toggleBluetooth(val);
-                          Future.delayed(const Duration(milliseconds: 1200), () {
-                            _loadHardwareInfo();
-                          });
-                        },
-                      ),
-                      _buildRadioTile(
-                        'Antena 4G / Celular', 
-                        {
-                          'available': _hardwareInfo['cellular']?['available'] == true,
-                          'enabled': _hardwareInfo['cellular']?['available'] == true,
-                          'state': _hardwareInfo['cellular']?['type'] ?? 'OFFLINE',
-                          'subtitle': 'Operadora: ${_hardwareInfo['cellular']?['operator'] ?? "Sem Sinal"}',
-                        }, 
-                        Icons.signal_cellular_alt_rounded, 
-                        theme, 
-                        isDark,
-                        onToggle: (val) async {
-                          await LauncherService.toggleCellular();
-                        },
-                      ),
-                      _buildRadioTile(
-                        'Receptor de Rádio FM', 
-                        {
-                          'available': _hardwareInfo['radio']?['available'] == true,
-                          'enabled': _fmRadioSimEnabled,
-                          'state': _fmRadioSimEnabled ? 'ATIVO' : 'DESATIVADO',
-                          'subtitle': _hardwareInfo['radio']?['state'] ?? 'Receptor de frequência analógica',
-                        }, 
-                        Icons.radio_rounded, 
-                        theme, 
-                        isDark,
-                        onToggle: (val) {
-                          setState(() {
-                            _fmRadioSimEnabled = val;
-                          });
-                        },
-                      ),
-                      _buildRadioTile(
-                        'NFC (Near Field)', 
-                        _hardwareInfo['nfc'] ?? {}, 
-                        Icons.nfc_rounded, 
-                        theme, 
-                        isDark,
-                        onToggle: (val) async {
-                          await LauncherService.openNfcSettings();
-                        },
-                      ),
-                      _buildRadioTile(
-                        'Lanterna Traseira', 
-                        {
-                          'available': true,
-                          'enabled': _flashlightEnabled,
-                          'state': _flashlightEnabled ? 'LIGADA' : 'DESLIGADA',
-                          'subtitle': 'Controle do LED físico da lanterna do celular',
-                        }, 
-                        Icons.flashlight_on_rounded, 
-                        theme, 
-                        isDark,
-                        onToggle: (val) async {
-                          await LauncherService.toggleFlashlight(val);
-                          setState(() {
-                            _flashlightEnabled = val;
-                          });
-                        },
-                      ),
-                      _buildRadioTile(
-                        'Giro da Tela (Auto)', 
-                        {
-                          'available': true,
-                          'enabled': _autoRotationEnabled,
-                          'state': _autoRotationEnabled ? 'AUTO-ROTAÇÃO' : 'BLOQUEADO',
-                          'subtitle': 'Bloqueia ou desbloqueia a rotação automática global',
-                        }, 
-                        Icons.screen_rotation_rounded, 
-                        theme, 
-                        isDark,
-                        onToggle: (val) async {
-                          final success = await LauncherService.setAutoRotationEnabled(val);
-                          if (success) {
-                            setState(() {
-                              _autoRotationEnabled = val;
-                            });
-                          } else {
-                            Future.delayed(const Duration(seconds: 4), () async {
-                              final rot = await LauncherService.isAutoRotationEnabled();
-                              setState(() {
-                                _autoRotationEnabled = rot;
-                              });
-                            });
-                          }
-                        },
-                      ),
-                      _buildRadioTile(
-                        'Infravermelho', 
-                        _hardwareInfo['infrared'] ?? {}, 
-                        Icons.settings_remote_rounded, 
-                        theme, 
-                        isDark,
-                        onToggle: (val) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Hardware Infravermelho controlado automaticamente pelo sistema.'),
-                              duration: Duration(seconds: 2),
-                            ),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      _buildSectionTitle('SENSORES DE HARDWARE', theme),
-                      ..._buildPhysicalSensorsList(theme, isDark),
-                    ],
-                  ),
-          ),
-          
+
           Divider(color: theme.colorScheme.primary.withValues(alpha: 0.15)),
           const SizedBox(height: 6),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'PORTAL OS v1.0.3',
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w800,
-                  color: theme.colorScheme.primary.withValues(alpha: 0.4),
-                  letterSpacing: 0.5,
-                ),
+          Center(
+            child: Text(
+              'PORTAL OS',
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w900,
+                color: theme.colorScheme.primary.withValues(alpha: 0.5),
+                letterSpacing: 1.2,
               ),
-              Text(
-                'HARDWARE ACTIVE',
-                style: TextStyle(
-                  fontSize: 8,
-                  fontWeight: FontWeight.bold,
-                  color: theme.colorScheme.primary.withValues(alpha: 0.7),
-                ),
-              ),
-            ],
+            ),
           ),
         ],
       ),
@@ -1950,52 +2129,24 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(
-                Icons.menu_open_rounded,
-                color: theme.colorScheme.primary,
-                size: 24,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'Histórico Recente',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? const Color(0xFFFAFAFA) : Colors.black,
-                  ),
-                ),
-              ),
-              GestureDetector(
-                onTap: () => setState(() => _sideBarWidth = 0.0),
-                child: Icon(
-                  Icons.close_rounded,
-                  size: 20,
-                  color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.35),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Divider(color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.08)),
-          const SizedBox(height: 8),
+          // ── TOP GREEN SECTION TITLE ─────────────────────────────────
           Text(
-            'ÚLTIMOS APPS ABERTOS',
+            _rightSidebarTabIndex == 0 ? 'APLICATIVOS MAIS UTILIZADOS' : 'ÚLTIMOS APPS ABERTOS',
             style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              color: theme.colorScheme.secondary,
+              fontSize: 11,
+              fontWeight: FontWeight.w900,
+              color: theme.colorScheme.primary, // Signature App Green!
               letterSpacing: 0.8,
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
+
+          // ── APPS LIST ────────────────────────────────────────────────
           Expanded(
             child: _mostUsedApps.isEmpty
                 ? Center(
                     child: Text(
-                      'Nenhum aplicativo recente',
+                      'Nenhum aplicativo registrado',
                       style: TextStyle(
                         fontSize: 11,
                         color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
@@ -2073,14 +2224,83 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                     },
                   ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            'PORTAL OS v1.0.4',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.3),
-              letterSpacing: 1.0,
+          const SizedBox(height: 14),
+
+          // ── SEGMENTED CONTROL TOGGLE AT BASE / BOTTOM ────────────────
+          Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: theme.colorScheme.primary.withValues(alpha: 0.2),
+                width: 1.2,
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    onTap: () {
+                      setState(() => _rightSidebarTabIndex = 0);
+                      _loadMostUsedApps();
+                    },
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        color: _rightSidebarTabIndex == 0
+                            ? theme.colorScheme.primary.withValues(alpha: 0.22)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        '🔥 MAIS USADOS',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          color: _rightSidebarTabIndex == 0
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: InkWell(
+                    onTap: () {
+                      setState(() => _rightSidebarTabIndex = 1);
+                      _loadMostUsedApps();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        color: _rightSidebarTabIndex == 1
+                            ? theme.colorScheme.primary.withValues(alpha: 0.22)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        '🕒 RECENTES',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          color: _rightSidebarTabIndex == 1
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -2311,6 +2531,62 @@ Widget _buildSidebarItem(
   }
 
 
+  Widget _buildExploreActionTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required ThemeData theme,
+    required bool isDark,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.primary.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, size: 16, color: theme.colorScheme.primary),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : Colors.black,
+                    ),
+                  ),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 9,
+                      color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.55),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(
+              Icons.chevron_right_rounded,
+              size: 18,
+              color: theme.colorScheme.primary.withValues(alpha: 0.5),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildEarthFilterChips(ThemeData theme, bool isDark) {
     final filters = [
       {'name': 'Solo', 'value': 'Satélite', 'icon': Icons.satellite_alt_rounded},
@@ -2411,59 +2687,192 @@ Widget _buildSidebarItem(
     );
   }
 
-  Widget _buildWifiTile(ThemeData theme, bool isDark) {
-    final wifi = _hardwareInfo['wifi'] as Map? ?? {};
-    final bool enabled = wifi['enabled'] == true;
-    final String ssid = wifi['ssid'] ?? 'Desconectado';
-    final int speed = wifi['speed'] ?? 0;
-    final int rssi = wifi['rssi'] ?? 0;
 
-    String subtitle = 'Inativo';
-    if (enabled) {
-      if (ssid != 'Desconectado' && ssid.isNotEmpty) {
-        subtitle = '$ssid • ${speed > 0 ? "$speed Mbps" : ""} • ${rssi}dBm';
-      } else {
-        subtitle = 'Ativo (Sem conexão)';
-      }
-    }
+  Widget _buildMiniLeftBarContent(ThemeData theme, bool isDark) {
+    final wifiEnabled = _hardwareInfo['wifi']?['enabled'] == true;
+    final bluetoothEnabled = _hardwareInfo['bluetooth']?['enabled'] == true;
 
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.colorScheme.primary.withValues(alpha: 0.08),
-        ),
-      ),
-      child: Row(
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Column(
         children: [
-          Icon(Icons.wifi_rounded, size: 20, color: enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface.withValues(alpha: 0.35)),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Wi-Fi',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: TextStyle(fontSize: 10, color: theme.colorScheme.onSurface.withValues(alpha: 0.55)),
-                ),
-              ],
+          Container(
+            width: 4,
+            height: 32,
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(2),
             ),
           ),
-          Switch(
-            value: enabled,
-            activeThumbColor: theme.colorScheme.primary,
-            onChanged: (val) async {
-              await LauncherService.toggleWifi(val);
-              Future.delayed(const Duration(milliseconds: 1200), () {
-                _loadHardwareInfo();
+          Expanded(
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: Column(
+                children: [
+                  _buildMiniSensorToggle(
+                    icon: _isOfflineMode ? Icons.airplanemode_active_rounded : Icons.cell_tower_rounded,
+                    enabled: _isOfflineMode,
+                    tooltip: 'Modo Offline: ${_isOfflineMode ? "ATIVO" : "INATIVO"}',
+                    theme: theme,
+                    isDark: isDark,
+                    onTap: () async {
+                      final newOffline = !_isOfflineMode;
+                      setState(() {
+                        _isOfflineMode = newOffline;
+                        if (newOffline) {
+                          _fmRadioSimEnabled = false;
+                        }
+                      });
+                      if (newOffline) {
+                        await LauncherService.toggleWifi(false);
+                        await LauncherService.toggleBluetooth(false);
+                        await LauncherService.toggleFlashlight(false);
+                        _showOfflineDialog();
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  _buildMiniSensorToggle(
+                    icon: wifiEnabled ? Icons.wifi_rounded : Icons.wifi_off_rounded,
+                    enabled: wifiEnabled,
+                    tooltip: 'Wi-Fi: ${wifiEnabled ? "Ativo" : "Inativo"}',
+                    theme: theme,
+                    isDark: isDark,
+                    onTap: () async {
+                      await LauncherService.toggleWifi(!wifiEnabled);
+                      Future.delayed(const Duration(milliseconds: 1200), () {
+                        _loadHardwareInfo();
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  _buildMiniSensorToggle(
+                    icon: bluetoothEnabled ? Icons.bluetooth_rounded : Icons.bluetooth_disabled_rounded,
+                    enabled: bluetoothEnabled,
+                    tooltip: 'Bluetooth: ${bluetoothEnabled ? "Ativo" : "Inativo"}',
+                    theme: theme,
+                    isDark: isDark,
+                    onTap: () async {
+                      await LauncherService.toggleBluetooth(!bluetoothEnabled);
+                      Future.delayed(const Duration(milliseconds: 1200), () {
+                        _loadHardwareInfo();
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  _buildMiniSensorToggle(
+                    icon: Icons.network_cell_rounded,
+                    enabled: !_isOfflineMode,
+                    tooltip: 'Dados Móveis (4G/5G)',
+                    theme: theme,
+                    isDark: isDark,
+                    onTap: () => LauncherService.toggleCellular(),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildMiniSensorToggle(
+                    icon: Icons.nfc_rounded,
+                    enabled: !_isOfflineMode,
+                    tooltip: 'NFC & Pagamento sem Contato',
+                    theme: theme,
+                    isDark: isDark,
+                    onTap: () => LauncherService.openNfcSettings(),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildMiniSensorToggle(
+                    icon: Icons.calculate_rounded,
+                    enabled: true,
+                    tooltip: 'Calculadora',
+                    theme: theme,
+                    isDark: isDark,
+                    onTap: () => LauncherService.openCalculatorApp(),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildMiniSensorToggle(
+                    icon: Icons.camera_alt_rounded,
+                    enabled: true,
+                    tooltip: 'Câmera',
+                    theme: theme,
+                    isDark: isDark,
+                    onTap: () => LauncherService.openCameraApp(),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildMiniSensorToggle(
+                    icon: Icons.explore_rounded,
+                    enabled: true,
+                    tooltip: 'Bússola Magnética',
+                    theme: theme,
+                    isDark: isDark,
+                    onTap: () {
+                      setState(() {
+                        _leftBarWidth = MediaQuery.of(context).size.width * 0.5;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  _buildMiniSensorToggle(
+                    icon: _fmRadioSimEnabled ? Icons.radio_rounded : Icons.radio_button_off_rounded,
+                    enabled: _fmRadioSimEnabled,
+                    tooltip: 'Rádio FM Analógico: ${_fmRadioSimEnabled ? "Ligado" : "Desligado"}',
+                    theme: theme,
+                    isDark: isDark,
+                    onTap: () {
+                      if (_isOfflineMode) {
+                        _showOfflineDialog();
+                        return;
+                      }
+                      setState(() {
+                        _fmRadioSimEnabled = !_fmRadioSimEnabled;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  _buildMiniSensorToggle(
+                    icon: _flashlightEnabled ? Icons.flashlight_on_rounded : Icons.flashlight_off_rounded,
+                    enabled: _flashlightEnabled,
+                    tooltip: 'Lanterna: ${_flashlightEnabled ? "Ativa" : "Inativa"}',
+                    theme: theme,
+                    isDark: isDark,
+                    onTap: () async {
+                      final newMode = !_flashlightEnabled;
+                      await LauncherService.toggleFlashlight(newMode);
+                      setState(() {
+                        _flashlightEnabled = newMode;
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  _buildMiniSensorToggle(
+                    icon: _autoRotationEnabled ? Icons.screen_rotation_rounded : Icons.screen_lock_rotation_rounded,
+                    enabled: _autoRotationEnabled,
+                    tooltip: 'Rotação da Tela: ${_autoRotationEnabled ? "Auto" : "Bloqueada"}',
+                    theme: theme,
+                    isDark: isDark,
+                    onTap: () async {
+                      final newMode = !_autoRotationEnabled;
+                      final success = await LauncherService.setAutoRotationEnabled(newMode);
+                      if (success) {
+                        setState(() {
+                          _autoRotationEnabled = newMode;
+                        });
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          _buildMiniSensorToggle(
+            icon: Icons.build_circle_rounded,
+            enabled: true,
+            tooltip: 'Barra de Ferramentas completa',
+            theme: theme,
+            isDark: isDark,
+            onTap: () {
+              setState(() {
+                _leftBarWidth = MediaQuery.of(context).size.width * 0.5;
               });
             },
           ),
@@ -2472,232 +2881,137 @@ Widget _buildSidebarItem(
     );
   }
 
-  Widget _buildRadioTile(
-    String title, 
-    Map<dynamic, dynamic> data, 
-    IconData icon, 
-    ThemeData theme, 
-    bool isDark,
-    {required ValueChanged<bool> onToggle}
-  ) {
-    final bool available = data['available'] != false;
-    final bool enabled = data['enabled'] == true;
-    final String subtitle = data['subtitle'] ?? (available ? (enabled ? 'Ativo e pronto' : 'Disponível, inativo') : 'Não integrado ao hardware');
-
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.colorScheme.primary.withValues(alpha: 0.08),
-        ),
-      ),
-      child: Row(
+  Widget _buildMiniSideBarContent(ThemeData theme, bool isDark) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 24),
+      child: Column(
         children: [
-          Icon(icon, size: 20, color: enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface.withValues(alpha: 0.35)),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: theme.colorScheme.onSurface),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: TextStyle(fontSize: 10, color: theme.colorScheme.onSurface.withValues(alpha: 0.55)),
-                ),
-              ],
+          Container(
+            width: 4,
+            height: 40,
+            margin: const EdgeInsets.only(bottom: 24),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.primary.withValues(alpha: 0.4),
+              borderRadius: BorderRadius.circular(2),
             ),
           ),
-          if (available)
-            Switch(
-              value: enabled,
-              activeThumbColor: theme.colorScheme.primary,
-              onChanged: onToggle,
+          Expanded(
+            child: _mostUsedApps.isEmpty
+                ? Center(
+                    child: Icon(
+                      Icons.apps_rounded,
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.2),
+                      size: 24,
+                    ),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    itemCount: _mostUsedApps.length,
+                    separatorBuilder: (_, _) => const SizedBox(height: 16),
+                    physics: const BouncingScrollPhysics(),
+                    itemBuilder: (context, index) {
+                      final app = _mostUsedApps[index];
+                      return Center(
+                        child: Tooltip(
+                          message: app.label,
+                          child: InkWell(
+                            onTap: () async {
+                              setState(() => _sideBarWidth = 0.0);
+                              await AppsService.launchApp(app.packageName, app.className);
+                              _loadMostUsedApps();
+                            },
+                            borderRadius: BorderRadius.circular(14),
+                            child: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                                  width: 1,
+                                ),
+                              ),
+                              child: FutureBuilder<List<int>?>(
+                                future: AppsService.getAppIcon(app.packageName),
+                                builder: (context, snapshot) {
+                                  if (snapshot.hasData && snapshot.data != null) {
+                                    return ClipRRect(
+                                      borderRadius: BorderRadius.circular(8),
+                                      child: Image.memory(
+                                        Uint8List.fromList(snapshot.data!),
+                                        width: 28,
+                                        height: 28,
+                                        fit: BoxFit.cover,
+                                      ),
+                                    );
+                                  }
+                                  return Icon(
+                                    Icons.android_rounded,
+                                    size: 28,
+                                    color: theme.colorScheme.primary,
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+          IconButton(
+            icon: Icon(
+              Icons.settings_rounded,
+              color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.4),
+              size: 20,
             ),
+            onPressed: () {
+              AppsService.launchApp('com.android.settings', '');
+            },
+          ),
         ],
       ),
     );
   }
 
-  List<Widget> _buildPhysicalSensorsList(ThemeData theme, bool isDark) {
-    final rawSensors = _hardwareInfo['sensors'] as List?;
-    if (rawSensors == null || rawSensors.isEmpty) {
-      return [
-        Padding(
-          padding: const EdgeInsets.all(16.0),
+  Widget _buildMiniSensorToggle({
+    required IconData icon,
+    required bool enabled,
+    required String tooltip,
+    required ThemeData theme,
+    required bool isDark,
+    required VoidCallback onTap,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: enabled 
+                ? theme.colorScheme.primary.withValues(alpha: 0.12)
+                : (isDark ? Colors.white : Colors.black).withValues(alpha: 0.04),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+              color: enabled
+                  ? theme.colorScheme.primary.withValues(alpha: 0.3)
+                  : theme.colorScheme.primary.withValues(alpha: 0.1),
+              width: 1,
+            ),
+          ),
           child: Center(
-            child: Text(
-              'Nenhum sensor de hardware detectado',
-              style: TextStyle(fontSize: 11, color: theme.colorScheme.onSurface.withValues(alpha: 0.4)),
+            child: Icon(
+              icon,
+              size: 20,
+              color: enabled ? theme.colorScheme.primary : theme.colorScheme.onSurface.withValues(alpha: 0.4),
             ),
           ),
-        )
-      ];
-    }
-
-    final categories = <String, List<dynamic>>{
-      'Movimento & Orientação': [],
-      'Ambiente & Clima': [],
-      'Posição & Proximidade': [],
-      'Sensores Auxiliares': [],
-    };
-
-    for (var sensor in rawSensors) {
-      final String type = (sensor['type'] as String? ?? '').toLowerCase();
-      if (type.contains('accel') || type.contains('gyro') || type.contains('gravity') ||
-          type.contains('linear') || type.contains('rotat') || type.contains('step') ||
-          type.contains('orient') || type.contains('motion')) {
-        categories['Movimento & Orientação']!.add(sensor);
-      } else if (type.contains('light') || type.contains('temp') || type.contains('pressure') ||
-                 type.contains('humid') || type.contains('barom')) {
-        categories['Ambiente & Clima']!.add(sensor);
-      } else if (type.contains('proxim') || type.contains('magn') || type.contains('compass')) {
-        categories['Posição & Proximidade']!.add(sensor);
-      } else {
-        categories['Sensores Auxiliares']!.add(sensor);
-      }
-    }
-
-    final List<Widget> listItems = [];
-
-    categories.forEach((categoryName, sensorsList) {
-      if (sensorsList.isNotEmpty) {
-        listItems.add(
-          Padding(
-            padding: const EdgeInsets.only(top: 14.0, bottom: 6.0, left: 4.0),
-            child: Row(
-              children: [
-                Icon(
-                  categoryName == 'Movimento & Orientação'
-                      ? Icons.screen_rotation_rounded
-                      : categoryName == 'Ambiente & Clima'
-                          ? Icons.thermostat_rounded
-                          : categoryName == 'Posição & Proximidade'
-                              ? Icons.explore_rounded
-                              : Icons.tune_rounded,
-                  size: 11,
-                  color: theme.colorScheme.secondary,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  categoryName.toUpperCase(),
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    color: theme.colorScheme.secondary,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-
-        listItems.addAll(sensorsList.map((sensor) {
-          final String name = sensor['name'] ?? 'Sensor';
-          final String vendor = sensor['vendor'] ?? 'Desconhecido';
-          final double power = (sensor['power'] as num?)?.toDouble() ?? 0.0;
-          final String type = (sensor['type'] as String? ?? 'Desconhecido').split('.').last.toUpperCase();
-          final isExpanded = _expandedSensors.contains(name);
-          final desc = _getSensorDescription(name, type);
-
-          return Container(
-            margin: const EdgeInsets.symmetric(vertical: 3),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: (isDark ? Colors.white : Colors.black).withValues(alpha: 0.02),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: theme.colorScheme.primary.withValues(alpha: 0.04),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.sensors_rounded, size: 14, color: theme.colorScheme.primary.withValues(alpha: 0.6)),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            name,
-                            style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: theme.colorScheme.onSurface.withValues(alpha: 0.85)),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            'Fabricante: $vendor • Consumo: ${power.toStringAsFixed(2)}mA',
-                            style: TextStyle(fontSize: 8.5, color: theme.colorScheme.onSurface.withValues(alpha: 0.45)),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.primary.withValues(alpha: 0.05),
-                          borderRadius: BorderRadius.circular(5),
-                        ),
-                        child: Text(
-                          type,
-                          style: TextStyle(fontSize: 6.5, fontWeight: FontWeight.bold, color: theme.colorScheme.primary.withValues(alpha: 0.8)),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      icon: Icon(
-                        isExpanded ? Icons.info_rounded : Icons.info_outline_rounded,
-                        size: 14,
-                        color: theme.colorScheme.primary.withValues(alpha: isExpanded ? 0.95 : 0.5),
-                      ),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: () {
-                        setState(() {
-                          if (isExpanded) {
-                            _expandedSensors.remove(name);
-                          } else {
-                            _expandedSensors.add(name);
-                          }
-                        });
-                      },
-                    ),
-                  ],
-                ),
-                if (isExpanded) ...[
-                  const SizedBox(height: 6),
-                  Divider(color: theme.colorScheme.primary.withValues(alpha: 0.08)),
-                  const SizedBox(height: 4),
-                  Text(
-                    desc,
-                    style: TextStyle(
-                      fontSize: 8.5,
-                      color: theme.colorScheme.onSurface.withValues(alpha: 0.65),
-                      height: 1.3,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          );
-        }).toList());
-      }
-    });
-
-    return listItems;
+        ),
+      ),
+    );
   }
+
 }

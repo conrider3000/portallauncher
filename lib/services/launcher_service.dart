@@ -132,10 +132,24 @@ class LauncherService {
     } catch (_) {}
   }
 
+  /// Opens Android Airplane mode settings.
+  static Future<void> openAirplaneModeSettings() async {
+    try {
+      await _channel.invokeMethod('openAirplaneModeSettings');
+    } catch (_) {}
+  }
+
   /// Opens the system camera application.
   static Future<void> openCameraApp() async {
     try {
       await _channel.invokeMethod('openCameraApp');
+    } catch (_) {}
+  }
+
+  /// Opens the system calculator application.
+  static Future<void> openCalculatorApp() async {
+    try {
+      await _channel.invokeMethod('openCalculatorApp');
     } catch (_) {}
   }
 
@@ -161,6 +175,13 @@ class LauncherService {
   static Future<void> openGoogleLens() async {
     try {
       await _channel.invokeMethod('openGoogleLens');
+    } catch (_) {}
+  }
+
+  /// Opens the system voice recorder app.
+  static Future<void> openVoiceRecorderApp() async {
+    try {
+      await _channel.invokeMethod('openVoiceRecorderApp');
     } catch (_) {}
   }
 

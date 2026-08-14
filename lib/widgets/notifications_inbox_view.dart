@@ -17,6 +17,7 @@ class _NotificationsInboxViewState extends State<NotificationsInboxView> with Wi
   bool _isLoading = true;
   Timer? _refreshTimer;
   Map<String, String> _packageNameToLabel = {};
+  int _selectedFilter = 0; // 0 = Mensagens (Humanos), 1 = Avisos (Apps)
 
   @override
   void initState() {
@@ -108,25 +109,27 @@ class _NotificationsInboxViewState extends State<NotificationsInboxView> with Wi
     }
   }
 
-  Future<void> _dismiss(String key, int index) async {
+  Future<void> _dismiss(String key) async {
     try {
       await LauncherService.dismissNotification(key);
       setState(() {
-        _notifications.removeAt(index);
+        _notifications.removeWhere((n) => n['key'] == key);
       });
     } catch (_) {}
   }
 
-  Future<void> _clearAll() async {
+  Future<void> _clearFilterList(List<Map<String, String>> targetList) async {
     try {
-      for (var notif in _notifications) {
+      final keysToRemove = <String>[];
+      for (var notif in targetList) {
         final key = notif['key'];
         if (key != null) {
           await LauncherService.dismissNotification(key);
+          keysToRemove.add(key);
         }
       }
       setState(() {
-        _notifications.clear();
+        _notifications.removeWhere((n) => keysToRemove.contains(n['key']));
       });
     } catch (_) {}
   }
@@ -135,13 +138,49 @@ class _NotificationsInboxViewState extends State<NotificationsInboxView> with Wi
     if (_packageNameToLabel.containsKey(packageName)) {
       return _packageNameToLabel[packageName]!;
     }
-    // simple formatting fallback (com.android.settings -> Settings)
     final parts = packageName.split('.');
     if (parts.isNotEmpty) {
       final last = parts.last;
       return last[0].toUpperCase() + last.substring(1);
     }
     return packageName;
+  }
+
+  bool _isHumanMessage(Map<String, String> notif) {
+    final pack = (notif['packageName'] ?? '').toLowerCase();
+    final appLabel = _getAppName(pack).toLowerCase();
+
+    // Package keywords for human communication (messaging, email, social)
+    final messagingKeywords = [
+      'whatsapp',
+      'instagram',
+      'telegram',
+      'messenger',
+      'discord',
+      'gmail',
+      'outlook',
+      'mail',
+      'signal',
+      'twitter',
+      'linkedin',
+      'messaging',
+      'sms',
+      'mms',
+      'chat',
+      'slack',
+      'teams',
+      'viber',
+      'skype',
+      'line',
+      'wechat',
+    ];
+
+    for (var kw in messagingKeywords) {
+      if (pack.contains(kw) || appLabel.contains(kw)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   @override
@@ -211,34 +250,38 @@ class _NotificationsInboxViewState extends State<NotificationsInboxView> with Wi
       );
     }
 
+    final humanMessages = _notifications.where(_isHumanMessage).toList();
+    final appAlerts = _notifications.where((n) => !_isHumanMessage(n)).toList();
+    final activeList = _selectedFilter == 0 ? humanMessages : appAlerts;
+
     return Column(
       children: [
-        // Action Header
+        // Action Sub-Header (Top)
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Mensagens Recebidas',
+                _selectedFilter == 0 ? 'Mensagens Pessoais & Sociais' : 'Notificações & Avisos de Apps',
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: 11,
                   fontWeight: FontWeight.w800,
                   color: theme.colorScheme.primary.withValues(alpha: 0.8),
                   letterSpacing: 0.5,
                 ),
               ),
-              if (_notifications.isNotEmpty)
+              if (activeList.isNotEmpty)
                 GestureDetector(
-                  onTap: _clearAll,
+                  onTap: () => _clearFilterList(activeList),
                   child: Row(
                     children: [
-                      Icon(Icons.clear_all_rounded, size: 16, color: theme.colorScheme.primary),
+                      Icon(Icons.clear_all_rounded, size: 15, color: theme.colorScheme.primary),
                       const SizedBox(width: 4),
                       Text(
-                        'Limpar Tudo',
+                        'Limpar Categoria',
                         style: TextStyle(
-                          fontSize: 12,
+                          fontSize: 11,
                           fontWeight: FontWeight.bold,
                           color: theme.colorScheme.primary,
                         ),
@@ -252,19 +295,21 @@ class _NotificationsInboxViewState extends State<NotificationsInboxView> with Wi
         
         // Notifications List
         Expanded(
-          child: _notifications.isEmpty
+          child: activeList.isEmpty
               ? Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(
-                        Icons.mail_outline_rounded,
+                        _selectedFilter == 0 ? Icons.chat_bubble_outline_rounded : Icons.notifications_none_rounded,
                         size: 40,
                         color: theme.colorScheme.onSurface.withValues(alpha: 0.25),
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        'Nenhuma notificação no momento',
+                        _selectedFilter == 0
+                            ? 'Nenhuma mensagem de pessoas no momento'
+                            : 'Nenhum aviso de aplicativo no momento',
                         style: TextStyle(
                           fontSize: 13,
                           color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
@@ -275,10 +320,10 @@ class _NotificationsInboxViewState extends State<NotificationsInboxView> with Wi
                 )
               : ListView.builder(
                   physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.only(left: 14.0, right: 14.0, top: 4.0, bottom: 160.0),
-                  itemCount: _notifications.length,
+                  padding: const EdgeInsets.only(left: 14.0, right: 14.0, top: 4.0, bottom: 20.0),
+                  itemCount: activeList.length,
                   itemBuilder: (context, index) {
-                    final item = _notifications[index];
+                    final item = activeList[index];
                     final key = item['key'] ?? '';
                     final pack = item['packageName'] ?? '';
                     final title = item['title'] ?? '';
@@ -298,7 +343,7 @@ class _NotificationsInboxViewState extends State<NotificationsInboxView> with Wi
                           ),
                           child: const Icon(Icons.archive_outlined, color: Colors.white, size: 20),
                         ),
-                        onDismissed: (direction) => _dismiss(key, index),
+                        onDismissed: (direction) => _dismiss(key),
                         child: GestureDetector(
                           onDoubleTap: () async {
                             final clicked = await LauncherService.clickNotification(key);
@@ -395,6 +440,82 @@ class _NotificationsInboxViewState extends State<NotificationsInboxView> with Wi
                     );
                   },
                 ),
+        ),
+
+        // ── DUAL FILTER SELECTOR TOGGLE (MOVED TO BOTTOM BASE NEAR THUMB) ──
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16.0, 6.0, 16.0, 160.0),
+          child: Container(
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: theme.colorScheme.primary.withValues(alpha: 0.2),
+                width: 1.2,
+              ),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: InkWell(
+                    onTap: () => setState(() => _selectedFilter = 0),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        color: _selectedFilter == 0
+                            ? theme.colorScheme.primary.withValues(alpha: 0.22)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        '💬 MENSAGENS (${humanMessages.length})',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          color: _selectedFilter == 0
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: InkWell(
+                    onTap: () => setState(() => _selectedFilter = 1),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(
+                        color: _selectedFilter == 1
+                            ? theme.colorScheme.primary.withValues(alpha: 0.22)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        '🔔 AVISOS (${appAlerts.length})',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          color: _selectedFilter == 1
+                              ? theme.colorScheme.primary
+                              : theme.colorScheme.onSurface.withValues(alpha: 0.5),
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ],
     );
