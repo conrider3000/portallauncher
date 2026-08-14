@@ -445,76 +445,82 @@ class _NotificationsInboxViewState extends State<NotificationsInboxView> with Wi
         // ── DUAL FILTER SELECTOR TOGGLE (MOVED TO BOTTOM BASE NEAR THUMB) ──
         Padding(
           padding: const EdgeInsets.fromLTRB(16.0, 6.0, 16.0, 160.0),
-          child: Container(
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: (isDark ? Colors.black : Colors.white).withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: theme.colorScheme.primary.withValues(alpha: 0.2),
-                width: 1.2,
-              ),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: InkWell(
-                    onTap: () => setState(() => _selectedFilter = 0),
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      decoration: BoxDecoration(
-                        color: _selectedFilter == 0
-                            ? theme.colorScheme.primary.withValues(alpha: 0.22)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        '💬 MENSAGENS (${humanMessages.length})',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w900,
-                          color: _selectedFilter == 0
-                              ? theme.colorScheme.primary
-                              : theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                          letterSpacing: 0.5,
+          child: Builder(
+            builder: (context) {
+              final Color inactiveColor = isDark
+                  ? Colors.white.withValues(alpha: 0.4)
+                  : Colors.black.withValues(alpha: 0.4);
+
+              return Container(
+                width: double.infinity,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF070D09) : const Color(0xFFF4F7F5),
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.1),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    // Messages Tab
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(() => _selectedFilter = 0),
+                        child: Container(
+                          height: double.infinity,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: _selectedFilter == 0
+                                ? theme.colorScheme.primary
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                          child: Text(
+                            '💬 MENSAGENS (${humanMessages.length})',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: _selectedFilter == 0
+                                  ? theme.colorScheme.onPrimary
+                                  : inactiveColor,
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ),
-                Expanded(
-                  child: InkWell(
-                    onTap: () => setState(() => _selectedFilter = 1),
-                    borderRadius: BorderRadius.circular(12),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      decoration: BoxDecoration(
-                        color: _selectedFilter == 1
-                            ? theme.colorScheme.primary.withValues(alpha: 0.22)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        '🔔 AVISOS (${appAlerts.length})',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w900,
-                          color: _selectedFilter == 1
-                              ? theme.colorScheme.primary
-                              : theme.colorScheme.onSurface.withValues(alpha: 0.5),
-                          letterSpacing: 0.5,
+                    // Alerts Tab
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () => setState(() => _selectedFilter = 1),
+                        child: Container(
+                          height: double.infinity,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: _selectedFilter == 1
+                                ? theme.colorScheme.primary
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(24),
+                          ),
+                          child: Text(
+                            '🔔 AVISOS (${appAlerts.length})',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: _selectedFilter == 1
+                                  ? theme.colorScheme.onPrimary
+                                  : inactiveColor,
+                            ),
+                          ),
                         ),
                       ),
                     ),
-                  ),
+                  ],
                 ),
-              ],
-            ),
+              );
+            }
           ),
         ),
       ],
