@@ -53,7 +53,7 @@ class _SensorPanelState extends State<SensorPanel> {
 
     return ListView(
       physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       children: [
         // ── 1. Modo Offline Top Header Button ─────────────────────────────
         Material(
@@ -73,7 +73,7 @@ class _SensorPanelState extends State<SensorPanel> {
             borderRadius: BorderRadius.circular(16),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 250),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
               decoration: BoxDecoration(
                 color: _offlineMode
                     ? theme.colorScheme.error.withValues(alpha: 0.15)

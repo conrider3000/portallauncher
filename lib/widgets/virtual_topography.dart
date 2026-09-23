@@ -14,9 +14,10 @@ class VirtualTopography extends StatefulWidget {
 
   // Global map search query notifier to center the globe on matching locations
   static final ValueNotifier<String> mapSearchQueryNotifier = ValueNotifier('');
-  static final ValueNotifier<Set<String>> earthFilterNotifier = ValueNotifier({'Satélite', 'Clima', 'Vetor (3D)', 'Monitoramento'});
+  static final ValueNotifier<Set<String>> earthFilterNotifier = ValueNotifier({'Satélite', 'Clima', 'Monitoramento'});
   static final ValueNotifier<String?> directSearchTrigger = ValueNotifier<String?>(null);
   static final ValueNotifier<bool> toggleRotationTrigger = ValueNotifier<bool>(true);
+  static final ValueNotifier<int> rotationSpeedNotifier = ValueNotifier<int>(1000);
   static final ValueNotifier<bool> closeOverlaysNotifier = ValueNotifier<bool>(false);
   static final ValueNotifier<bool> refreshSatelliteTrigger = ValueNotifier<bool>(false);
   static VoidCallback? onTapCallback;
@@ -56,6 +57,38 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
 
   Map<String, dynamic>? _selectedGeoPoint;
   Timer? _popupTimer;
+  
+  Timer? _easterEggTimer;
+  bool _isEasterEggActive = false;
+  
+  void _toggleEasterEgg() {
+    if (!mounted) return;
+    setState(() {
+      _isEasterEggActive = !_isEasterEggActive;
+      if (_isEasterEggActive) {
+        _animationController.duration = const Duration(seconds: 60);
+        _animationController.repeat();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Easter Egg: Rotação de 60 segundos ativada! ⏱️'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          ),
+        );
+      } else {
+        _updateRotationDuration(VirtualTopography.rotationSpeedNotifier.value);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Easter Egg desativado!'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          ),
+        );
+      }
+    });
+  }
   Timer? _debounceTimer;
   List<Map<String, dynamic>> _wikiSearchResults = [];
   // ignore: unused_field
@@ -126,7 +159,11 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     });
 
     _loadCachedFilter();
+    
+    _loadCachedRotationSpeed();
+    VirtualTopography.rotationSpeedNotifier.addListener(_onRotationSpeedChanged);
     VirtualTopography.mapSearchQueryNotifier.addListener(_onMapSearchQueryChanged);
+
     VirtualTopography.earthFilterNotifier.addListener(_onFilterChanged);
     VirtualTopography.directSearchTrigger.addListener(_onDirectSearchTriggered);
     VirtualTopography.toggleRotationTrigger.addListener(_onToggleRotationChanged);
@@ -138,7 +175,10 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
 
   @override
   void dispose() {
+    
+    VirtualTopography.rotationSpeedNotifier.removeListener(_onRotationSpeedChanged);
     VirtualTopography.mapSearchQueryNotifier.removeListener(_onMapSearchQueryChanged);
+
     VirtualTopography.earthFilterNotifier.removeListener(_onFilterChanged);
     VirtualTopography.directSearchTrigger.removeListener(_onDirectSearchTriggered);
     VirtualTopography.toggleRotationTrigger.removeListener(_onToggleRotationChanged);
@@ -247,7 +287,47 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     } catch (_) {}
   }
 
+
+  Future<void> _loadCachedRotationSpeed() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final speed = prefs.getInt('portal_earth_rotation_speed') ?? 1000;
+      VirtualTopography.rotationSpeedNotifier.value = speed;
+      _updateRotationDuration(speed);
+    } catch (_) {}
+  }
+
+  void _onRotationSpeedChanged() async {
+    final speed = VirtualTopography.rotationSpeedNotifier.value;
+    _updateRotationDuration(speed);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('portal_earth_rotation_speed', speed);
+    } catch (_) {}
+  }
+
+  void _updateRotationDuration(int speed) {
+    if (!mounted) return;
+    if (_isEasterEggActive) return;
+    final int baseSeconds = 86400; // 24 hours
+    
+    // If speed is very large, durationSeconds might be 0, so clamp to 1 minimum
+    int durationSeconds = baseSeconds ~/ speed;
+    if (durationSeconds < 1) durationSeconds = 1;
+    
+    final currentValue = _animationController.value;
+    _animationController.stop();
+    _animationController.duration = Duration(seconds: durationSeconds);
+    _animationController.value = currentValue;
+    
+    if (VirtualTopography.toggleRotationTrigger.value) {
+      // Use repeat to ensure the new duration is picked up
+      _animationController.repeat();
+    }
+  }
+
   void _onToggleRotationChanged() {
+
     if (VirtualTopography.toggleRotationTrigger.value) {
       if (_selectedGeoPoint == null && !_animationController.isAnimating) {
         _animationController.repeat();
@@ -1062,10 +1142,19 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
               children: [
                 // 3D Textured Globe Viewer
                 GestureDetector(
-                  onScaleStart: _onScaleStart,
+                  onScaleStart: (details) {
+                    _easterEggTimer?.cancel();
+                    _onScaleStart(details);
+                  },
                   onScaleUpdate: _onScaleUpdate,
                   onScaleEnd: _onScaleEnd,
-                  onTapDown: (details) => _handleTapDown(details, width, height),
+                  onTapDown: (details) {
+                    _easterEggTimer?.cancel();
+                    _easterEggTimer = Timer(const Duration(seconds: 5), _toggleEasterEgg);
+                    _handleTapDown(details, width, height);
+                  },
+                  onTapUp: (_) => _easterEggTimer?.cancel(),
+                  onTapCancel: () => _easterEggTimer?.cancel(),
                   onDoubleTap: _handleDoubleTapLocation,
                   child: AnimatedBuilder(
                     animation: _animationController,
@@ -1073,7 +1162,9 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
                       return CustomPaint(
                         size: Size(width, height),
                         painter: _TexturedGlobePainter(
-                          rotationProgress: _animationController.value,
+                          rotationProgress: _isEasterEggActive
+                              ? (_animationController.value * 60).floor() / 60.0
+                              : _animationController.value,
                           manualRotX: _manualRotationX,
                           manualRotY: _manualRotationY,
                           earthImage: _earthImage,

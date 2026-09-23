@@ -886,18 +886,8 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
     if (_tapTimestamps.length >= 3) {
       _tapTimestamps.clear();
       _tapTimer?.cancel();
-      setState(() {
-        final nextMode = ContextHeader.isPanelOpenNotifier.value == HeaderMode.none
-            ? HeaderMode.timeSpace
-            : HeaderMode.none;
-        ContextHeader.isPanelOpenNotifier.value = nextMode;
-        _showPanel = (nextMode == HeaderMode.timeSpace);
-        if (nextMode == HeaderMode.timeSpace) {
-          _animationController.forward();
-        } else {
-          _animationController.reverse();
-        }
-      });
+      final newMode = Theme.of(context).brightness == Brightness.dark ? ThemeMode.light : ThemeMode.dark;
+      ThemeManager.toggleTheme(newMode);
       return;
     }
 
@@ -906,8 +896,24 @@ class _ContextHeaderState extends State<ContextHeader> with SingleTickerProvider
       if (_tapTimestamps.length == 1) {
         _togglePanel();
       } else if (_tapTimestamps.length == 2) {
-        final newMode = Theme.of(context).brightness == Brightness.dark ? ThemeMode.light : ThemeMode.dark;
-        ThemeManager.toggleTheme(newMode);
+        if (ContextHeader.isPanelOpenNotifier.value != HeaderMode.none || ContextHeader.isExtendedNotifier.value) {
+          ContextHeader.isPanelOpenNotifier.value = HeaderMode.none;
+          ContextHeader.isExtendedNotifier.value = false;
+          if (mounted) {
+            setState(() {
+              _showPanel = false;
+              _animationController.reverse();
+            });
+          }
+        } else {
+          ContextHeader.isPanelOpenNotifier.value = HeaderMode.timeSpace;
+          if (mounted) {
+            setState(() {
+              _showPanel = true;
+              _animationController.forward();
+            });
+          }
+        }
       }
       _tapTimestamps.clear();
     });

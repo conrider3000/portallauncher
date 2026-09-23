@@ -358,7 +358,7 @@ class _AppsListViewState extends State<AppsListView> {
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 12),
         child: Row(
           children: [
             Icon(icon, color: color, size: 20),
@@ -396,7 +396,7 @@ class _AppsListViewState extends State<AppsListView> {
               highlightColor: theme.colorScheme.primary.withValues(alpha: 0.04),
               borderRadius: BorderRadius.circular(12),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                padding: const EdgeInsets.symmetric(horizontal: 12.0),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.end, // Align contents to the right
                   crossAxisAlignment: CrossAxisAlignment.center,

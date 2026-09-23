@@ -661,7 +661,7 @@ class _MemoryExplorerViewState extends State<MemoryExplorerView> {
     final isDark = theme.brightness == Brightness.dark;
 
     return Padding(
-      padding: const EdgeInsets.only(left: 16.0, right: 16.0, top: 8.0, bottom: 140.0),
+      padding: const EdgeInsets.only(left: 12.0, right: 12.0, top: 8.0, bottom: 140.0),
       child: Column(
         children: [
           if (_currentPath == _rootPath) _buildStorageCard(context, isDark, theme),
