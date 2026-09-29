@@ -80,7 +80,7 @@ class _PortalAppState extends State<PortalApp> {
       valueListenable: ThemeManager.themeModeNotifier,
       builder: (context, currentThemeMode, child) {
         return MaterialApp(
-          title: 'Portal',
+          title: 'Gaia',
           debugShowCheckedModeBanner: false,
           theme: TropicalTheme.light,
           darkTheme: TropicalTheme.dark,

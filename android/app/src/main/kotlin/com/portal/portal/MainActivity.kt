@@ -446,6 +446,19 @@ class MainActivity : FlutterActivity() {
             "state" to (if (isSimReady) "ATIVO" else "NÃO DETECTADO")
         )
 
+
+        // Location (GPS)
+        val locationManager = applicationContext.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
+        var locationEnabled = false
+        if (locationManager != null) {
+            locationEnabled = locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) ||
+                              locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+        }
+        info["location"] = mapOf(
+            "enabled" to locationEnabled,
+            "state" to (if (locationEnabled) "ATIVO" else "INATIVO")
+        )
+
         // 6. FM Radio Receiver
         val fmPackages = arrayOf(
             "com.sec.android.app.fm", 

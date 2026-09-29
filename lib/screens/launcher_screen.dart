@@ -31,7 +31,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
   final WikipediaController _wikipediaController = WikipediaController();
   late AnimationController _filterBarController;
   bool _isFilterBarExpanded = false;
-  bool _showHomeTitle = true;
+  bool _showGaiaTitle = true;
   final PageController _pageController = PageController();
   int _searchTapCount = 0;
   Timer? _searchTapTimer;
@@ -111,7 +111,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
       final mode = ContextHeader.isPanelOpenNotifier.value;
       setState(() {
         if (mode == HeaderMode.timeSpace) {
-          _showHomeTitle = false;
+          _showGaiaTitle = false;
           if (_isFilterBarExpanded) {
             _isFilterBarExpanded = false;
             _filterBarController.reverse();
@@ -121,7 +121,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
           Future.delayed(const Duration(milliseconds: 300), () {
             if (mounted && ContextHeader.isPanelOpenNotifier.value != HeaderMode.timeSpace) {
               setState(() {
-                _showHomeTitle = true;
+                _showGaiaTitle = true;
               });
             }
           });
@@ -404,7 +404,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                     }(),
                   ),
 
-                  // Warning banner if Portal is not the default launcher
+                  // Warning banner if Gaia is not the default launcher
                   if (!_isDefault)
                     GestureDetector(
                       onTap: () async {
@@ -435,7 +435,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    'Definir Portal como Padrão',
+                                    'Definir Gaia como Padrão',
                                     style: TextStyle(
                                       fontWeight: FontWeight.bold,
                                       fontSize: 13,
@@ -535,7 +535,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                 valueListenable: ContextHeader.isPanelOpenNotifier,
                                 builder: (context, headerMode, child) {
                                   final String titleText = _currentPageIndex == 0
-                                      ? 'Home'
+                                      ? 'Gaia'
                                       : _currentPageIndex == 1
                                           ? 'Memória'
                                           : _currentPageIndex == 2
@@ -544,7 +544,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
 
                                   final bool isTitleVisible = (_currentPageIndex != 0)
                                       ? (headerMode == HeaderMode.filter)
-                                      : ((headerMode == HeaderMode.filter) && _showHomeTitle);
+                                      : ((headerMode == HeaderMode.filter) && _showGaiaTitle);
 
                                   return AnimatedOpacity(
                                     opacity: isTitleVisible ? 1.0 : 0.0,
@@ -767,7 +767,7 @@ class _LauncherScreenState extends State<LauncherScreen> with WidgetsBindingObse
                                             ),
                                             const SizedBox(width: 4),
                                             Text(
-                                              'Home',
+                                              'Gaia',
                                               style: TextStyle(
                                                 fontSize: 10,
                                                 fontWeight: FontWeight.bold,
@@ -1326,7 +1326,7 @@ Widget _buildSidebarItem(
     return ValueListenableBuilder<Set<String>>(
       valueListenable: VirtualTopography.earthFilterNotifier,
       builder: (context, activeLayers, child) {
-        return SingleChildScrollView(
+            return SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           physics: const BouncingScrollPhysics(),
           child: Row(
@@ -1442,10 +1442,5 @@ Widget _buildSidebarItem(
       },
     );
   }
-
-
-
-
-
 
 }

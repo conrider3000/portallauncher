@@ -153,7 +153,7 @@ class _NotificationsInboxViewState extends State<NotificationsInboxView> {
 
             // DUAL FILTER SELECTOR TOGGLE (MOVED TO BOTTOM BASE NEAR THUMB)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16.0, 6.0, 16.0, 160.0),
+              padding: const EdgeInsets.fromLTRB(16.0, 6.0, 16.0, 132.0),
               child: InboxFilterSelector(
                 selectedFilter: _controller.selectedFilter,
                 humanMessagesCount: humanMessages.length,

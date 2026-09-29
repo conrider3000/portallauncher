@@ -335,7 +335,7 @@ class _MemoryExplorerViewState extends State<MemoryExplorerView> {
               ),
             Expanded(
               child: Text(
-                _currentPath.replaceAll('/storage/emulated/0', 'Memória Interna'),
+                _currentPath == _rootPath ? 'Arquivos Locais' : _currentPath.split('/').last,
                 style: const TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w800,
@@ -661,11 +661,11 @@ class _MemoryExplorerViewState extends State<MemoryExplorerView> {
     final isDark = theme.brightness == Brightness.dark;
 
     return Padding(
-      padding: const EdgeInsets.only(left: 12.0, right: 12.0, top: 8.0, bottom: 140.0),
+      padding: const EdgeInsets.only(left: 12.0, right: 12.0, top: 8.0, bottom: 132.0),
       child: Column(
         children: [
-          if (_currentPath == _rootPath) _buildStorageCard(context, isDark, theme),
-          if (_currentPath == _rootPath) const SizedBox(height: 16),
+          _buildStorageCard(context, isDark, theme),
+          const SizedBox(height: 16),
           Expanded(
             child: ClipRRect(
               borderRadius: BorderRadius.circular(24),

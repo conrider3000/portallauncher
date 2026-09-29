@@ -58,7 +58,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
     if (!_lgpdAccepted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Por favor, aceite os termos da LGPD para entrar no Portal.'),
+          content: Text('Por favor, aceite os termos da LGPD para entrar no Gaia.'),
           backgroundColor: TropicalTheme.warmTerracotta,
         ),
       );
@@ -112,7 +112,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                 child: SingleChildScrollView(
                   child: Text(
                     '1. Armazenamento Local de Dados:\n'
-                    'Todos os dados coletados pelo Portal Launcher, incluindo histórico de buscas, uso de aplicativos recentes, telemetria básica do sistema e posições de geolocalização no globo virtual 3D, são salvos de forma estritamente local nas preferências do aplicativo no seu dispositivo (SharedPreferences/SQLite).\n\n'
+                    'Todos os dados coletados pelo Gaia Launcher, incluindo histórico de buscas, uso de aplicativos recentes, telemetria básica do sistema e posições de geolocalização no globo virtual 3D, são salvos de forma estritamente local nas preferências do aplicativo no seu dispositivo (SharedPreferences/SQLite).\n\n'
                     '2. Ausência de Envio em Nuvem:\n'
                     'Este aplicativo não possui banco de dados em nuvem próprio nem compartilha qualquer data pessoal identificável com terceiros ou com a equipe de desenvolvimento. Cumprimos rigorosamente a LGPD (Lei Geral de Proteção de Dados).\n\n'
                     '3. Permissões de Localização e Arquivos:\n'
@@ -199,7 +199,7 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                                 child: Padding(
                                   padding: const EdgeInsets.only(top: 4.0),
                                   child: Text(
-                                    'PORTAL',
+                                    'GAIA',
                                     style: theme.textTheme.headlineLarge?.copyWith(
                                       fontSize: 22,
                                       fontWeight: FontWeight.w900,
@@ -306,12 +306,12 @@ class _OnboardingScreenState extends State<OnboardingScreen>
                         ),
                         const SizedBox(height: 14),
 
-                        // Action Buttons Row (Entrar no Portal + Definir como Padrão)
+                        // Action Buttons Row (Entrar no Gaia + Definir como Padrão)
                         Row(
                           children: [
                             Expanded(
                               child: _buildHiggsButton(
-                                text: 'Entrar no Portal',
+                                text: 'Entrar no Gaia',
                                 onTap: () {
                                   if (!_lgpdAccepted) {
                                     ScaffoldMessenger.of(context).showSnackBar(

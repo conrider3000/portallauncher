@@ -14,7 +14,9 @@ class VirtualTopography extends StatefulWidget {
 
   // Global map search query notifier to center the globe on matching locations
   static final ValueNotifier<String> mapSearchQueryNotifier = ValueNotifier('');
-  static final ValueNotifier<Set<String>> earthFilterNotifier = ValueNotifier({'Satélite', 'Clima', 'Monitoramento'});
+  static final ValueNotifier<Set<String>> earthFilterNotifier = ValueNotifier({'Satélite', 'Clima'});
+  static final ValueNotifier<bool> isEasterEggActiveNotifier = ValueNotifier(false);
+  static final ValueNotifier<int> easterEggSecondsNotifier = ValueNotifier(0);
   static final ValueNotifier<String?> directSearchTrigger = ValueNotifier<String?>(null);
   static final ValueNotifier<bool> toggleRotationTrigger = ValueNotifier<bool>(true);
   static final ValueNotifier<int> rotationSpeedNotifier = ValueNotifier<int>(1000);
@@ -26,7 +28,7 @@ class VirtualTopography extends StatefulWidget {
   State<VirtualTopography> createState() => _VirtualTopographyState();
 }
 
-class _VirtualTopographyState extends State<VirtualTopography> with SingleTickerProviderStateMixin, AutomaticKeepAliveClientMixin {
+class _VirtualTopographyState extends State<VirtualTopography> with SingleTickerProviderStateMixin, AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
   late AnimationController _animationController;
   double _manualRotationX = 0.0;
   double _manualRotationY = 0.0;
@@ -59,13 +61,13 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
   Timer? _popupTimer;
   
   Timer? _easterEggTimer;
-  bool _isEasterEggActive = false;
   
   void _toggleEasterEgg() {
     if (!mounted) return;
     setState(() {
-      _isEasterEggActive = !_isEasterEggActive;
-      if (_isEasterEggActive) {
+      VirtualTopography.isEasterEggActiveNotifier.value = !VirtualTopography.isEasterEggActiveNotifier.value;
+      if (VirtualTopography.isEasterEggActiveNotifier.value) {
+        VirtualTopography.easterEggSecondsNotifier.value = 0;
         _animationController.duration = const Duration(seconds: 60);
         _animationController.repeat();
         ScaffoldMessenger.of(context).showSnackBar(
@@ -171,6 +173,21 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     VirtualTopography.refreshSatelliteTrigger.addListener(_onRefreshSatelliteTriggered);
     _initializeUserCoordinates();
     _loadGeoJsonData();
+  }
+
+
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      if ((VirtualTopography.toggleRotationTrigger.value || VirtualTopography.isEasterEggActiveNotifier.value) && !_animationController.isAnimating) {
+        _animationController.repeat();
+      }
+    } else if (state == AppLifecycleState.paused) {
+      if (_animationController.isAnimating) {
+        _animationController.stop();
+      }
+    }
   }
 
   @override
@@ -308,7 +325,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
 
   void _updateRotationDuration(int speed) {
     if (!mounted) return;
-    if (_isEasterEggActive) return;
+    if (VirtualTopography.isEasterEggActiveNotifier.value) return;
     final int baseSeconds = 86400; // 24 hours
     
     // If speed is very large, durationSeconds might be 0, so clamp to 1 minimum
@@ -320,8 +337,9 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     _animationController.duration = Duration(seconds: durationSeconds);
     _animationController.value = currentValue;
     
-    if (VirtualTopography.toggleRotationTrigger.value) {
-      // Use repeat to ensure the new duration is picked up
+    // If they change speed, force it to unpause
+    VirtualTopography.toggleRotationTrigger.value = true;
+    if (_selectedGeoPoint == null) {
       _animationController.repeat();
     }
   }
@@ -838,6 +856,10 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
   }
 
   Future<void> _handleDoubleTapLocation() async {
+    if (VirtualTopography.isEasterEggActiveNotifier.value) {
+      _animationController.forward(from: 0.0);
+      return;
+    }
     var permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
@@ -1021,7 +1043,7 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
     }
     if (_showFlatMap) return;
     final center = Offset(width / 2, height / 2);
-    final radius = ((width - 32) / 2) * _zoom;
+    final radius = (width / 2 * 0.90) * _zoom;
 
     final autoRotY = _animationController.value * 2 * math.pi;
     final rotY = autoRotY + _manualRotationY;
@@ -1159,10 +1181,18 @@ class _VirtualTopographyState extends State<VirtualTopography> with SingleTicker
                   child: AnimatedBuilder(
                     animation: _animationController,
                     builder: (context, child) {
+                      if (VirtualTopography.isEasterEggActiveNotifier.value) {
+                        int currentTick = (_animationController.value * 60).floor();
+                        if (VirtualTopography.easterEggSecondsNotifier.value != currentTick) {
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            VirtualTopography.easterEggSecondsNotifier.value = currentTick;
+                          });
+                        }
+                      }
                       return CustomPaint(
                         size: Size(width, height),
                         painter: _TexturedGlobePainter(
-                          rotationProgress: _isEasterEggActive
+                          rotationProgress: VirtualTopography.isEasterEggActiveNotifier.value
                               ? (_animationController.value * 60).floor() / 60.0
                               : _animationController.value,
                           manualRotX: _manualRotationX,
@@ -1495,23 +1525,19 @@ class _TexturedGlobePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final double cx = size.width / 2;
     final double cy = size.height / 2;
-    final double radius = ((size.width - 32) / 2) * zoom;
+    final double portalRadius = size.width / 2;
+    final double radius = (portalRadius * 0.90) * zoom;
 
     final double autoRotY = rotationProgress * 2 * math.pi;
     final double rotY = autoRotY + manualRotY;
     final double rotX = manualRotX + 0.2;
 
-    // Subtle atmospheric outline (iOS style clean glass shadow)
-    final glowPaint = Paint()
-      ..color = themeColor.withValues(alpha: 0.2)
-      ..strokeWidth = 1.0
-      ..style = PaintingStyle.stroke;
-    canvas.drawCircle(Offset(cx, cy), radius, glowPaint);
+    // Removed subtle atmospheric outline border to avoid border on the mask
 
     final glowOverlay = Paint()
       ..color = themeColor.withValues(alpha: 0.02)
       ..style = PaintingStyle.fill;
-    canvas.drawCircle(Offset(cx, cy), radius, glowOverlay);
+    canvas.drawCircle(Offset(cx, cy), portalRadius, glowOverlay);
 
     const int latSegments = 18;
     const int lonSegments = 24;
@@ -1592,7 +1618,7 @@ class _TexturedGlobePainter extends CustomPainter {
     if (indices.isNotEmpty) {
       if (showEarth || showHeatmap || showInfrared || showUltraviolet || showNightLights || showWinds || showTopography) {
         canvas.save();
-        canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: radius)));
+        canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: portalRadius)));
 
         if (earthImage != null) {
           final earthVertices = ui.Vertices(
@@ -1697,14 +1723,14 @@ class _TexturedGlobePainter extends CustomPainter {
           ..filterQuality = FilterQuality.medium;
 
         canvas.save();
-        canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: radius)));
+        canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: portalRadius)));
         canvas.drawVertices(cloudsVertices, BlendMode.srcOver, cloudsPaint);
         canvas.restore();
       }
 
       if (showGrid || earthImage == null) {
         canvas.save();
-        canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: radius)));
+        canvas.clipPath(ui.Path()..addOval(Rect.fromCircle(center: Offset(cx, cy), radius: portalRadius)));
         _drawGraticuleAndKeyLines(canvas, radius, rotY, rotX, cx, cy);
         _drawContinentOutlines(canvas, radius, rotY, rotX, cx, cy, geoJsonContinents);
         canvas.restore();

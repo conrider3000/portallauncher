@@ -54,13 +54,20 @@ class _RightSidebarViewState extends State<RightSidebarView> {
       padding: const EdgeInsets.symmetric(vertical: 24),
       child: Column(
         children: [
-          Container(
-            width: 4,
-            height: 40,
-            margin: const EdgeInsets.only(bottom: 24),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primary.withValues(alpha: 0.4),
-              borderRadius: BorderRadius.circular(2),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 24),
+            child: GestureDetector(
+              onDoubleTap: () {
+                widget.controller.updateRightBarWidth(PortalDesignSystem.maxBarWidth(MediaQuery.of(context).size.width), PortalDesignSystem.maxBarWidth(MediaQuery.of(context).size.width));
+              },
+              onTap: () {
+                widget.controller.updateRightBarWidth(PortalDesignSystem.maxBarWidth(MediaQuery.of(context).size.width), PortalDesignSystem.maxBarWidth(MediaQuery.of(context).size.width));
+              },
+              child: Icon(
+                Icons.keyboard_arrow_left_rounded,
+                color: theme.colorScheme.primary.withValues(alpha: 0.6),
+                size: 28,
+              ),
             ),
           ),
           Expanded(
@@ -76,7 +83,7 @@ class _RightSidebarViewState extends State<RightSidebarView> {
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     itemCount: _mostUsedApps.length,
                     separatorBuilder: (_, _) => const SizedBox(height: 16),
-                    physics: const BouncingScrollPhysics(),
+                    physics: const NeverScrollableScrollPhysics(),
                     itemBuilder: (context, index) {
                       final app = _mostUsedApps[index];
                       return Center(
@@ -148,18 +155,26 @@ class _RightSidebarViewState extends State<RightSidebarView> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── TOP GREEN SECTION TITLE ─────────────────────────────────
-          Text(
-            _rightSidebarTabIndex == 0 ? 'APLICATIVOS MAIS UTILIZADOS' : 'ÚLTIMOS APPS ABERTOS',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w900,
-              color: theme.colorScheme.primary, // Signature App Green
-              letterSpacing: 0.8,
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: GestureDetector(
+              onTap: () {
+                if (widget.controller.sideBarWidth.value > PortalDesignSystem.miniBarWidth) {
+                  widget.controller.updateRightBarWidth(PortalDesignSystem.miniBarWidth, PortalDesignSystem.maxBarWidth(MediaQuery.of(context).size.width));
+                }
+              },
+              onDoubleTap: () {
+                if (widget.controller.sideBarWidth.value > PortalDesignSystem.miniBarWidth) {
+                  widget.controller.updateRightBarWidth(PortalDesignSystem.miniBarWidth, PortalDesignSystem.maxBarWidth(MediaQuery.of(context).size.width));
+                }
+              },
+              child: Icon(
+                Icons.keyboard_arrow_right_rounded,
+                color: theme.colorScheme.primary.withValues(alpha: 0.6),
+                size: 28,
+              ),
             ),
           ),
-          const SizedBox(height: 12),
-
           // ── APPS LIST ────────────────────────────────────────────────
           Expanded(
             child: _mostUsedApps.isEmpty
@@ -173,6 +188,7 @@ class _RightSidebarViewState extends State<RightSidebarView> {
                     ),
                   )
                 : ListView.separated(
+                    reverse: true,
                     padding: EdgeInsets.zero,
                     itemCount: _mostUsedApps.length,
                     separatorBuilder: (context, index) => const SizedBox(height: 8),

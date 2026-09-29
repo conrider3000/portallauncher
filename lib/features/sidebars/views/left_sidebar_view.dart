@@ -13,7 +13,7 @@ class LeftSidebarView extends StatefulWidget {
   State<LeftSidebarView> createState() => _LeftSidebarViewState();
 }
 
-class _LeftSidebarViewState extends State<LeftSidebarView> {
+class _LeftSidebarViewState extends State<LeftSidebarView> with WidgetsBindingObserver {
   bool _isOfflineMode = false;
   bool _flashlightEnabled = false;
   bool _autoRotationEnabled = false;
@@ -23,8 +23,23 @@ class _LeftSidebarViewState extends State<LeftSidebarView> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadHardwareInfo();
     _loadInitialStates();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadHardwareInfo();
+      _loadInitialStates();
+    }
   }
 
   Future<void> _loadHardwareInfo() async {
@@ -158,17 +173,25 @@ class _LeftSidebarViewState extends State<LeftSidebarView> {
     );
   }
 
-  Widget _buildSectionTitle(String title, ThemeData theme) {
+  Widget _buildSectionTitle(String title, ThemeData theme, [IconData? icon]) {
     return Padding(
       padding: const EdgeInsets.only(top: 8.0, bottom: 8.0, left: 4.0),
-      child: Text(
-        title,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w900,
-          color: theme.colorScheme.primary.withValues(alpha: 0.55),
-          letterSpacing: 0.8,
-        ),
+      child: Row(
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 14, color: theme.colorScheme.primary.withValues(alpha: 0.55)),
+            const SizedBox(width: 6),
+          ],
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+              color: theme.colorScheme.primary.withValues(alpha: 0.55),
+              letterSpacing: 0.8,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -313,94 +336,124 @@ class _LeftSidebarViewState extends State<LeftSidebarView> {
   Widget _buildMiniLeftBarContent(ThemeData theme, bool isDark) {
     final wifiEnabled = _hardwareInfo['wifi']?['enabled'] == true;
     final bluetoothEnabled = _hardwareInfo['bluetooth']?['enabled'] == true;
+    final locationEnabled = _hardwareInfo['location']?['enabled'] == true;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 24),
       child: Column(
         children: [
-          Container(
-            width: 4,
-            height: 32,
-            margin: const EdgeInsets.only(bottom: 12),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.primary.withValues(alpha: 0.4),
-              borderRadius: BorderRadius.circular(2),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: GestureDetector(
+              onDoubleTap: () {
+                widget.controller.updateLeftBarWidth(PortalDesignSystem.maxBarWidth(MediaQuery.of(context).size.width), PortalDesignSystem.maxBarWidth(MediaQuery.of(context).size.width));
+              },
+              onTap: () {
+                widget.controller.updateLeftBarWidth(PortalDesignSystem.maxBarWidth(MediaQuery.of(context).size.width), PortalDesignSystem.maxBarWidth(MediaQuery.of(context).size.width));
+              },
+              child: Icon(
+                Icons.keyboard_arrow_right_rounded,
+                color: theme.colorScheme.primary.withValues(alpha: 0.6),
+                size: 28,
+              ),
             ),
           ),
           Expanded(
             child: SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
+              physics: const NeverScrollableScrollPhysics(),
               child: Column(
                 children: [
-                  _buildMiniSensorToggle(
-                    icon: _isOfflineMode ? Icons.airplanemode_active_rounded : Icons.cell_tower_rounded,
-                    enabled: _isOfflineMode,
-                    tooltip: 'Modo Offline: ${_isOfflineMode ? "ATIVO" : "INATIVO"}',
-                    theme: theme,
-                    isDark: isDark,
-                    onTap: () async {
-                      final newOffline = !_isOfflineMode;
-                      setState(() {
-                        _isOfflineMode = newOffline;
-                        if (newOffline) {
-                          _fmRadioSimEnabled = false;
-                        }
-                      });
-                      if (newOffline) {
-                        await LauncherService.toggleWifi(false);
-                        await LauncherService.toggleBluetooth(false);
-                        await LauncherService.toggleFlashlight(false);
-                        _showOfflineDialog();
-                      }
-                    },
+                  // CONEXÕES separator
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12.0, bottom: 12.0),
+                    child: Icon(Icons.sensors_rounded, size: 16, color: theme.colorScheme.primary.withValues(alpha: 0.4)),
                   ),
-                  const SizedBox(height: 12),
                   _buildMiniSensorToggle(
-                    icon: wifiEnabled ? Icons.wifi_rounded : Icons.wifi_off_rounded,
-                    enabled: wifiEnabled,
-                    tooltip: 'Wi-Fi: ${wifiEnabled ? "Ativo" : "Inativo"}',
-                    theme: theme,
-                    isDark: isDark,
-                    onTap: () async {
-                      await LauncherService.toggleWifi(!wifiEnabled);
-                      Future.delayed(const Duration(milliseconds: 1200), () {
-                        _loadHardwareInfo();
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _buildMiniSensorToggle(
-                    icon: bluetoothEnabled ? Icons.bluetooth_rounded : Icons.bluetooth_disabled_rounded,
-                    enabled: bluetoothEnabled,
-                    tooltip: 'Bluetooth: ${bluetoothEnabled ? "Ativo" : "Inativo"}',
-                    theme: theme,
-                    isDark: isDark,
-                    onTap: () async {
-                      await LauncherService.toggleBluetooth(!bluetoothEnabled);
-                      Future.delayed(const Duration(milliseconds: 1200), () {
-                        _loadHardwareInfo();
-                      });
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _buildMiniSensorToggle(
-                    icon: Icons.network_cell_rounded,
-                    enabled: !_isOfflineMode,
-                    tooltip: 'Dados Móveis (4G/5G)',
+                    icon: Icons.signal_cellular_alt_rounded,
+                    enabled: true,
+                    tooltip: 'Rede Celular',
                     theme: theme,
                     isDark: isDark,
                     onTap: () => LauncherService.toggleCellular(),
                   ),
                   const SizedBox(height: 12),
                   _buildMiniSensorToggle(
+                    icon: wifiEnabled ? Icons.wifi_rounded : Icons.wifi_off_rounded,
+                    enabled: wifiEnabled,
+                    tooltip: 'Wi-Fi: ${wifiEnabled ? "ON" : "OFF"}',
+                    theme: theme,
+                    isDark: isDark,
+                    onTap: () async {
+                      await LauncherService.toggleWifi(!wifiEnabled);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  _buildMiniSensorToggle(
+                    icon: bluetoothEnabled ? Icons.bluetooth_rounded : Icons.bluetooth_disabled_rounded,
+                    enabled: bluetoothEnabled,
+                    tooltip: 'Bluetooth: ${bluetoothEnabled ? "ON" : "OFF"}',
+                    theme: theme,
+                    isDark: isDark,
+                    onTap: () async {
+                      await LauncherService.toggleBluetooth(!bluetoothEnabled);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  _buildMiniSensorToggle(
                     icon: Icons.nfc_rounded,
-                    enabled: !_isOfflineMode,
-                    tooltip: 'NFC & Pagamento sem Contato',
+                    enabled: true,
+                    tooltip: 'NFC',
                     theme: theme,
                     isDark: isDark,
                     onTap: () => LauncherService.openNfcSettings(),
                   ),
                   const SizedBox(height: 12),
+                  _buildMiniSensorToggle(
+                    icon: _isOfflineMode ? Icons.airplanemode_active_rounded : Icons.airplanemode_inactive_rounded,
+                    enabled: _isOfflineMode,
+                    tooltip: 'Modo Offline',
+                    theme: theme,
+                    isDark: isDark,
+                    onTap: () async {
+                      await LauncherService.openAirplaneModeSettings();
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // SENSORES separator
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12.0, bottom: 12.0),
+                    child: Icon(Icons.track_changes_rounded, size: 16, color: theme.colorScheme.primary.withValues(alpha: 0.4)),
+                  ),
+                  _buildMiniSensorToggle(
+                    icon: locationEnabled ? Icons.location_on_rounded : Icons.location_off_rounded,
+                    enabled: locationEnabled,
+                    tooltip: 'Localização',
+                    theme: theme,
+                    isDark: isDark,
+                    onTap: () => LauncherService.openLocationSettings(),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildMiniSensorToggle(
+                    icon: _autoRotationEnabled ? Icons.screen_rotation_rounded : Icons.screen_lock_rotation_rounded,
+                    enabled: _autoRotationEnabled,
+                    tooltip: 'Giro da Tela',
+                    theme: theme,
+                    isDark: isDark,
+                    onTap: () async {
+                      final newMode = !_autoRotationEnabled;
+                      if (await LauncherService.setAutoRotationEnabled(newMode)) {
+                        setState(() => _autoRotationEnabled = newMode);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // FERRAMENTAS separator
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12.0, bottom: 12.0),
+                    child: Icon(Icons.handyman_rounded, size: 16, color: theme.colorScheme.primary.withValues(alpha: 0.4)),
+                  ),
                   _buildMiniSensorToggle(
                     icon: Icons.calculate_rounded,
                     enabled: true,
@@ -411,74 +464,26 @@ class _LeftSidebarViewState extends State<LeftSidebarView> {
                   ),
                   const SizedBox(height: 12),
                   _buildMiniSensorToggle(
-                    icon: Icons.camera_alt_rounded,
+                    icon: Icons.access_time_filled_rounded,
                     enabled: true,
-                    tooltip: 'Câmera',
+                    tooltip: 'Alarme / Relógio',
                     theme: theme,
                     isDark: isDark,
-                    onTap: () => LauncherService.openCameraApp(),
-                  ),
-                  const SizedBox(height: 12),
-                  _buildMiniSensorToggle(
-                    icon: Icons.explore_rounded,
-                    enabled: true,
-                    tooltip: 'Bússola Magnética',
-                    theme: theme,
-                    isDark: isDark,
-                    onTap: () {
-                      widget.controller.updateLeftBarWidth(PortalDesignSystem.maxBarWidth(MediaQuery.of(context).size.width), PortalDesignSystem.maxBarWidth(MediaQuery.of(context).size.width));
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  _buildMiniSensorToggle(
-                    icon: _fmRadioSimEnabled ? Icons.radio_rounded : Icons.radio_button_off_rounded,
-                    enabled: _fmRadioSimEnabled,
-                    tooltip: 'Rádio FM Analógico: ${_fmRadioSimEnabled ? "Ligado" : "Desligado"}',
-                    theme: theme,
-                    isDark: isDark,
-                    onTap: () {
-                      if (_isOfflineMode) {
-                        _showOfflineDialog();
-                        return;
-                      }
-                      setState(() {
-                        _fmRadioSimEnabled = !_fmRadioSimEnabled;
-                      });
-                    },
+                    onTap: () => LauncherService.openClockApp(),
                   ),
                   const SizedBox(height: 12),
                   _buildMiniSensorToggle(
                     icon: _flashlightEnabled ? Icons.flashlight_on_rounded : Icons.flashlight_off_rounded,
                     enabled: _flashlightEnabled,
-                    tooltip: 'Lanterna: ${_flashlightEnabled ? "Ativa" : "Inativa"}',
+                    tooltip: 'Lanterna',
                     theme: theme,
                     isDark: isDark,
                     onTap: () async {
-                      final newMode = !_flashlightEnabled;
-                      await LauncherService.toggleFlashlight(newMode);
-                      setState(() {
-                        _flashlightEnabled = newMode;
-                      });
+                      final newSt = !_flashlightEnabled;
+                      await LauncherService.toggleFlashlight(newSt);
+                      setState(() => _flashlightEnabled = newSt);
                     },
                   ),
-                  const SizedBox(height: 12),
-                  _buildMiniSensorToggle(
-                    icon: _autoRotationEnabled ? Icons.screen_rotation_rounded : Icons.screen_lock_rotation_rounded,
-                    enabled: _autoRotationEnabled,
-                    tooltip: 'Rotação da Tela: ${_autoRotationEnabled ? "Auto" : "Bloqueada"}',
-                    theme: theme,
-                    isDark: isDark,
-                    onTap: () async {
-                      final newMode = !_autoRotationEnabled;
-                      final success = await LauncherService.setAutoRotationEnabled(newMode);
-                      if (success) {
-                        setState(() {
-                          _autoRotationEnabled = newMode;
-                        });
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 12),
                 ],
               ),
             ),
@@ -507,47 +512,136 @@ class _LeftSidebarViewState extends State<LeftSidebarView> {
 
     final bluetooth = _hardwareInfo['bluetooth'] as Map? ?? {};
     final bool btEnabled = bluetooth['enabled'] == true;
+    
+    final location = _hardwareInfo['location'] as Map? ?? {};
+    final bool locationEnabled = location['enabled'] == true;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 20.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _buildToolButtonTile(
-            title: _isOfflineMode ? 'MODO OFFLINE ATIVO' : 'MODO ONLINE',
-            subtitle: _isOfflineMode
-                ? 'Isolamento de rádio ativo no launcher'
-                : 'Todas as transmissões e buscas ativas',
-            icon: _isOfflineMode ? Icons.airplanemode_active_rounded : Icons.cell_tower_rounded,
-            active: _isOfflineMode,
-            activeColor: const Color(0xFFFF3B30),
-            badgeText: _isOfflineMode ? 'OFFLINE' : 'ONLINE',
-            theme: theme,
-            isDark: isDark,
-            onTap: () async {
-              final newOffline = !_isOfflineMode;
-              setState(() {
-                _isOfflineMode = newOffline;
-                if (newOffline) {
-                  _fmRadioSimEnabled = false;
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: GestureDetector(
+              onTap: () {
+                if (widget.controller.leftBarWidth.value > PortalDesignSystem.miniBarWidth) {
+                  widget.controller.updateLeftBarWidth(PortalDesignSystem.miniBarWidth, PortalDesignSystem.maxBarWidth(MediaQuery.of(context).size.width));
                 }
-              });
-              if (newOffline) {
-                await LauncherService.toggleWifi(false);
-                await LauncherService.toggleBluetooth(false);
-                await LauncherService.toggleFlashlight(false);
-                _showOfflineDialog();
-              }
-            },
+              },
+              onDoubleTap: () {
+                if (widget.controller.leftBarWidth.value > PortalDesignSystem.miniBarWidth) {
+                  widget.controller.updateLeftBarWidth(PortalDesignSystem.miniBarWidth, PortalDesignSystem.maxBarWidth(MediaQuery.of(context).size.width));
+                }
+              },
+              child: Icon(
+                Icons.keyboard_arrow_left_rounded,
+                color: theme.colorScheme.primary.withValues(alpha: 0.6),
+                size: 28,
+              ),
+            ),
           ),
-          Divider(color: theme.colorScheme.primary.withValues(alpha: 0.15)),
-
           Expanded(
             child: ListView(
-              physics: const BouncingScrollPhysics(),
+              physics: const NeverScrollableScrollPhysics(),
               padding: const EdgeInsets.symmetric(vertical: 4),
               children: [
-                _buildSectionTitle('FERRAMENTAS DE HARDWARE', theme),
+                _buildSectionTitle('CONEXÕES', theme, Icons.sensors_rounded),
+                
+                _buildToolButtonTile(
+                  title: 'Rede Celular (4G/5G)',
+                  subtitle: 'Operadora & dados móveis',
+                  icon: Icons.signal_cellular_alt_rounded,
+                  active: true,
+                  badgeText: 'PAINEL',
+                  theme: theme,
+                  isDark: isDark,
+                  onTap: () => LauncherService.toggleCellular(),
+                ),
+
+                _buildToolButtonTile(
+                  title: 'Internet (Wi-Fi)',
+                  subtitle: wifiEnabled
+                      ? (wifiSsid.isNotEmpty && wifiSsid != 'Desconectado'
+                          ? '$wifiSsid ${wifiSpeed > 0 ? "• $wifiSpeed Mbps" : ""}'
+                          : 'Conectado')
+                      : 'Wi-Fi desativado',
+                  icon: wifiEnabled ? Icons.wifi_rounded : Icons.wifi_off_rounded,
+                  active: wifiEnabled,
+                  badgeText: wifiEnabled ? 'ON' : 'OFF',
+                  theme: theme,
+                  isDark: isDark,
+                  onTap: () => LauncherService.toggleWifi(!wifiEnabled),
+                ),
+
+                _buildToolButtonTile(
+                  title: 'Bluetooth',
+                  subtitle: btEnabled ? 'Dispositivo visível e pronto' : 'Bluetooth desativado',
+                  icon: btEnabled ? Icons.bluetooth_rounded : Icons.bluetooth_disabled_rounded,
+                  active: btEnabled,
+                  badgeText: btEnabled ? 'ON' : 'OFF',
+                  theme: theme,
+                  isDark: isDark,
+                  onTap: () => LauncherService.toggleBluetooth(!btEnabled),
+                ),
+
+                _buildToolButtonTile(
+                  title: 'NFC & Pagamentos',
+                  subtitle: 'Comunicação por aproximação',
+                  icon: Icons.nfc_rounded,
+                  active: true,
+                  badgeText: 'PAINEL',
+                  theme: theme,
+                  isDark: isDark,
+                  onTap: () => LauncherService.openNfcSettings(),
+                ),
+                
+                _buildToolButtonTile(
+                  title: _isOfflineMode ? 'Modo Offline (Avião)' : 'Modo Offline (Avião)',
+                  subtitle: _isOfflineMode ? 'Isolamento de rádio ativo' : 'Desativado',
+                  icon: _isOfflineMode ? Icons.airplanemode_active_rounded : Icons.airplanemode_inactive_rounded,
+                  active: _isOfflineMode,
+                  activeColor: const Color(0xFFFF3B30),
+                  badgeText: _isOfflineMode ? 'OFFLINE' : 'ONLINE',
+                  theme: theme,
+                  isDark: isDark,
+                  onTap: () => LauncherService.openAirplaneModeSettings(),
+                ),
+
+                const SizedBox(height: 12),
+                
+                _buildSectionTitle('SENSORES', theme, Icons.track_changes_rounded),
+                
+                _buildToolButtonTile(
+                  title: 'Localização (GPS)',
+                  subtitle: locationEnabled ? 'Serviços de localização ativos' : 'Localização desativada',
+                  icon: locationEnabled ? Icons.location_on_rounded : Icons.location_off_rounded,
+                  active: locationEnabled,
+                  badgeText: locationEnabled ? 'ON' : 'OFF',
+                  theme: theme,
+                  isDark: isDark,
+                  onTap: () => LauncherService.openLocationSettings(),
+                ),
+
+                _buildToolButtonTile(
+                  title: 'Giro da Tela',
+                  subtitle: _autoRotationEnabled ? 'Giro livre ativado' : 'Orientação bloqueada',
+                  icon: _autoRotationEnabled ? Icons.screen_rotation_rounded : Icons.screen_lock_rotation_rounded,
+                  active: _autoRotationEnabled,
+                  badgeText: _autoRotationEnabled ? 'AUTO' : 'TRAVADO',
+                  theme: theme,
+                  isDark: isDark,
+                  onTap: () async {
+                    final newMode = !_autoRotationEnabled;
+                    if (await LauncherService.setAutoRotationEnabled(newMode)) {
+                      setState(() => _autoRotationEnabled = newMode);
+                    }
+                  },
+                ),
+
+                const SizedBox(height: 12),
+                
+                _buildSectionTitle('FERRAMENTAS', theme, Icons.handyman_rounded),
                 
                 _buildToolButtonTile(
                   title: 'Calculadora',
@@ -559,16 +653,16 @@ class _LeftSidebarViewState extends State<LeftSidebarView> {
                   isDark: isDark,
                   onTap: () => LauncherService.openCalculatorApp(),
                 ),
-
+                
                 _buildToolButtonTile(
-                  title: 'Câmera Digital',
-                  subtitle: 'Captura de fotos e vídeos',
-                  icon: Icons.camera_alt_rounded,
+                  title: 'Alarme / Relógio',
+                  subtitle: 'Gerenciar horários',
+                  icon: Icons.access_time_filled_rounded,
                   active: true,
                   badgeText: 'ABRIR',
                   theme: theme,
                   isDark: isDark,
-                  onTap: () => LauncherService.openCameraApp(),
+                  onTap: () => LauncherService.openClockApp(),
                 ),
 
                 _buildToolButtonTile(
@@ -582,109 +676,8 @@ class _LeftSidebarViewState extends State<LeftSidebarView> {
                   onTap: () async {
                     final newSt = !_flashlightEnabled;
                     await LauncherService.toggleFlashlight(newSt);
-                    setState(() {
-                      _flashlightEnabled = newSt;
-                    });
+                    setState(() => _flashlightEnabled = newSt);
                   },
-                ),
-
-                _buildCompassCard(theme, isDark),
-
-                _buildToolButtonTile(
-                  title: 'Rádio FM Analógico',
-                  subtitle: _fmRadioSimEnabled
-                      ? 'Frequência 98.9 MHz • Receptor ativo'
-                      : 'Toque para ligar o receptor FM',
-                  icon: Icons.radio_rounded,
-                  active: _fmRadioSimEnabled,
-                  badgeText: _fmRadioSimEnabled ? 'ATIVO' : 'OFF',
-                  theme: theme,
-                  isDark: isDark,
-                  onTap: () {
-                    setState(() {
-                      _fmRadioSimEnabled = !_fmRadioSimEnabled;
-                    });
-                  },
-                ),
-
-                _buildToolButtonTile(
-                  title: 'Giro da Tela',
-                  subtitle: _autoRotationEnabled ? 'Giro livre ativado' : 'Orientação bloqueada',
-                  icon: _autoRotationEnabled ? Icons.screen_rotation_rounded : Icons.screen_lock_rotation_rounded,
-                  active: _autoRotationEnabled,
-                  badgeText: _autoRotationEnabled ? 'AUTO' : 'TRAVADO',
-                  theme: theme,
-                  isDark: isDark,
-                  onTap: () async {
-                    final newMode = !_autoRotationEnabled;
-                    final success = await LauncherService.setAutoRotationEnabled(newMode);
-                    if (success) {
-                      setState(() {
-                        _autoRotationEnabled = newMode;
-                      });
-                    }
-                  },
-                ),
-
-                const SizedBox(height: 12),
-                _buildSectionTitle('CONECTIVIDADE & TRANSMISSÃO', theme),
-
-                _buildToolButtonTile(
-                  title: 'Wi-Fi',
-                  subtitle: wifiEnabled
-                      ? (wifiSsid.isNotEmpty && wifiSsid != 'Desconectado'
-                          ? '$wifiSsid ${wifiSpeed > 0 ? "• $wifiSpeed Mbps" : ""}'
-                          : 'Conectado')
-                      : 'Toque para ativar Wi-Fi',
-                  icon: wifiEnabled ? Icons.wifi_rounded : Icons.wifi_off_rounded,
-                  active: wifiEnabled,
-                  badgeText: wifiEnabled ? 'CONECTADO' : 'DESLIGADO',
-                  theme: theme,
-                  isDark: isDark,
-                  onTap: () async {
-                    await LauncherService.toggleWifi(!wifiEnabled);
-                    Future.delayed(const Duration(milliseconds: 1200), () {
-                      _loadHardwareInfo();
-                    });
-                  },
-                ),
-
-                _buildToolButtonTile(
-                  title: 'Bluetooth',
-                  subtitle: btEnabled ? 'Dispositivo visível e pronto' : 'Toque para ativar Bluetooth',
-                  icon: btEnabled ? Icons.bluetooth_rounded : Icons.bluetooth_disabled_rounded,
-                  active: btEnabled,
-                  badgeText: btEnabled ? 'ATIVO' : 'DESLIGADO',
-                  theme: theme,
-                  isDark: isDark,
-                  onTap: () async {
-                    await LauncherService.toggleBluetooth(!btEnabled);
-                    Future.delayed(const Duration(milliseconds: 1200), () {
-                      _loadHardwareInfo();
-                    });
-                  },
-                ),
-
-                _buildToolButtonTile(
-                  title: 'Rede Celular (4G/5G)',
-                  subtitle: 'Operadora & dados móveis',
-                  icon: Icons.signal_cellular_alt_rounded,
-                  active: true,
-                  badgeText: 'PAINEL',
-                  theme: theme,
-                  isDark: isDark,
-                  onTap: () => LauncherService.toggleCellular(),
-                ),
-
-                _buildToolButtonTile(
-                  title: 'NFC & Pagamentos',
-                  subtitle: 'Comunicação por aproximação',
-                  icon: Icons.nfc_rounded,
-                  active: true,
-                  badgeText: 'PAINEL',
-                  theme: theme,
-                  isDark: isDark,
-                  onTap: () => LauncherService.openNfcSettings(),
                 ),
               ],
             ),
@@ -707,7 +700,6 @@ class _LeftSidebarViewState extends State<LeftSidebarView> {
       ),
     );
   }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
